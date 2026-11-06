@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpen } from 'lucide-react';
 
 interface BookCoverProps {
@@ -10,6 +10,11 @@ interface BookCoverProps {
 
 export const BookCover: React.FC<BookCoverProps> = ({ coverUrl, title, author, className = '' }) => {
   const [hasError, setHasError] = useState(false);
+
+  // Reseta o estado de erro sempre que a URL da capa mudar ou for recebida
+  useEffect(() => {
+    setHasError(false);
+  }, [coverUrl]);
 
   // If there's an error or no coverUrl, display a beautiful book design
   if (hasError || !coverUrl) {
@@ -39,6 +44,7 @@ export const BookCover: React.FC<BookCoverProps> = ({ coverUrl, title, author, c
     <img
       src={coverUrl}
       alt={title}
+      loading="lazy"
       onError={() => setHasError(true)}
       className={`w-full h-full object-cover ${className}`}
     />

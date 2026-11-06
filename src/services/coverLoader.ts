@@ -1,6 +1,4 @@
 import { StorageService } from './storage';
-import { DriveApi } from './driveApi';
-import { GoogleAuth } from './googleAuth';
 import type { Book } from '../types';
 
 type CoverListener = (bookId: string, coverUrl: string) => void;
@@ -11,33 +9,54 @@ let queue: Book[] = [];
 let isProcessing = false;
 const processedIds = new Set<string>();
 
-async function urlToBase64(url: string, timeoutMs = 4000): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
+export function needsCover(book: Book): boolean {
+  if (!book.coverUrl) return true;
+  // URLs do Google Drive (lh3.googleusercontent ou drive.google.com) falham no <img> direto do navegador
+  if (book.coverUrl.includes('googleusercontent.com') || book.coverUrl.includes('drive.google.com')) {
+    return true;
   }
+  // Data URLs vazias ou quebradas
+  if (book.coverUrl.startsWith('data:') && book.coverUrl.length < 500) {
+    return true;
+  }
+  return false;
 }
 
 /**
- * Busca capa online através de APIs abertas (Google Books / OpenLibrary)
+ * Busca capa online em alta definição
+ * Prioridade 1: Apple Books / iTunes Search API (rápida, pública, capas em alta definição das edições brasileiras)
+ * Prioridade 2: Google Books API
+ * Prioridade 3: Open Library API
  */
 async function fetchOnlineCover(title: string, author?: string): Promise<string | null> {
-  const cleanTitle = title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const cleanAuthor = author && !/desconhecido/i.test(author) ? author.trim() : '';
+  const cleanTitle = title
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  // 1. Google Books API
+  const cleanAuthor =
+    author && !/desconhecido/i.test(author) ? author.trim() : '';
+
+  // 1. Apple Books / iTunes Search API (altíssima velocidade, sem restrição de cota, capa HD brasileira)
+  try {
+    const q = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=ebook&country=br&limit=1`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      const rawUrl = data.results?.[0]?.artworkUrl100;
+      if (rawUrl) {
+        return rawUrl.replace('100x100bb.jpg', '600x600bb.jpg');
+      }
+    }
+  } catch {}
+
+  // 2. Google Books API
   try {
     const q = cleanAuthor ? `${cleanTitle} ${cleanAuthor}` : cleanTitle;
     const controller = new AbortController();
@@ -49,16 +68,16 @@ async function fetchOnlineCover(title: string, author?: string): Promise<string 
     clearTimeout(timeout);
     if (res.ok) {
       const data = await res.json();
-      const thumb = data.items?.[0]?.volumeInfo?.imageLinks?.thumbnail;
+      const thumb =
+        data.items?.[0]?.volumeInfo?.imageLinks?.thumbnail ||
+        data.items?.[0]?.volumeInfo?.imageLinks?.smallThumbnail;
       if (thumb) {
-        const secureUrl = thumb.replace(/^http:\/\//i, 'https://').replace('&edge=curl', '');
-        const b64 = await urlToBase64(secureUrl);
-        if (b64 && b64.length > 500) return b64;
+        return thumb.replace(/^http:\/\//i, 'https://').replace('&edge=curl', '');
       }
     }
   } catch {}
 
-  // 2. Open Library API
+  // 3. Open Library API
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
@@ -71,8 +90,7 @@ async function fetchOnlineCover(title: string, author?: string): Promise<string 
       const data = await res.json();
       const coverId = data.docs?.[0]?.cover_i;
       if (coverId) {
-        const b64 = await urlToBase64(`https://covers.openlibrary.org/b/id/${coverId}-M.jpg`);
-        if (b64 && b64.length > 500) return b64;
+        return `https://covers.openlibrary.org/b/id/${coverId}-M.jpg`;
       }
     }
   } catch {}
@@ -90,13 +108,16 @@ export const CoverLoader = {
    * Adiciona livros sem capa à fila de segundo plano
    */
   queueBooks(books: Book[]) {
+    let hasNew = false;
     for (const b of books) {
-      // Se já tem capa ou já foi processado nesta sessão, pula
-      if (b.coverUrl || processedIds.has(b.id)) continue;
+      if (!needsCover(b) || processedIds.has(b.id)) continue;
       processedIds.add(b.id);
       queue.push(b);
+      hasNew = true;
     }
-    this.processQueue();
+    if (hasNew) {
+      this.processQueue();
+    }
   },
 
   async processQueue() {
@@ -108,35 +129,22 @@ export const CoverLoader = {
       if (!book) break;
 
       try {
-        let coverUrl: string | null = null;
+        const coverUrl = await fetchOnlineCover(book.title, book.author);
 
-        // Estratégia 1: miniatura gerada pelo Google Drive se o arquivo estiver lá
-        if (book.driveFileId && GoogleAuth.isConnected()) {
-          try {
-            coverUrl = await DriveApi.getThumbnailDataUrl(book.driveFileId);
-          } catch {}
-        }
-
-        // Estratégia 2: busca por APIs abertas (Google Books / OpenLibrary)
-        if (!coverUrl) {
-          coverUrl = await fetchOnlineCover(book.title, book.author);
-        }
-
-        // Se conseguiu a capa, salva permanentemente e notifica a UI
         if (coverUrl) {
           await StorageService.saveBook(
             { ...book, coverUrl },
             undefined,
             { preserveTimestamp: true }
           );
-          listeners.forEach((l) => l(book.id, coverUrl!));
+          listeners.forEach((l) => l(book.id, coverUrl));
         }
       } catch (err) {
         console.warn(`[CoverLoader] Erro ao buscar capa de "${book.title}":`, err);
       }
 
-      // Pequena pausa de 250ms para manter a interface do usuário 100% fluida
-      await new Promise((r) => setTimeout(r, 250));
+      // Pausa leve de 150ms para manter a interface do usuário totalmente suave
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     isProcessing = false;

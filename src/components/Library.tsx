@@ -39,6 +39,7 @@ type FilterType = 'all' | 'reading' | 'completed' | 'pdf' | 'epub' | 'archived';
 export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [showDriveModal, setShowDriveModal] = useState(false);
@@ -57,10 +58,10 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   }, [books]);
 
   useEffect(() => {
-    return CoverLoader.subscribe(() => {
-      onRefreshBooks();
+    return CoverLoader.subscribe((bookId, newCoverUrl) => {
+      setCoverOverrides((prev) => ({ ...prev, [bookId]: newCoverUrl }));
     });
-  }, [onRefreshBooks]);
+  }, []);
   useEffect(() => {
     return LiveUpdater.subscribe((s) => {
       setLiveUpdateStatus(s);
@@ -82,9 +83,13 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
     let changed = false;
     for (const b of books) {
       const { title, author } = cleanBookTitleAndAuthor(b.title, b.author);
-      if (title !== b.title || author !== b.author) {
+      let cover = b.coverUrl;
+      if (cover && (cover.includes('googleusercontent.com') || cover.includes('drive.google.com'))) {
+        cover = undefined;
+      }
+      if (title !== b.title || author !== b.author || cover !== b.coverUrl) {
         changed = true;
-        StorageService.saveBook({ ...b, title, author }, undefined, { preserveTimestamp: true }).catch(() => {});
+        StorageService.saveBook({ ...b, title, author, coverUrl: cover }, undefined, { preserveTimestamp: true }).catch(() => {});
       }
     }
 
@@ -382,7 +387,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                 className="w-18 h-26 rounded-xl overflow-hidden bg-slate-800 shrink-0 shadow-md border border-slate-700/60 cursor-pointer active:scale-95 transition-transform"
               >
                 <BookCover
-                  coverUrl={recentBook.coverUrl}
+                  coverUrl={coverOverrides[recentBook.id] || recentBook.coverUrl}
                   title={recentBook.title}
                   author={recentBook.author}
                 />
@@ -476,7 +481,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                   {/* Cover */}
                   <div className="relative aspect-[3/4] w-full rounded-xl overflow-hidden bg-slate-800 shadow-md mb-2 flex items-center justify-center">
                     <BookCover
-                      coverUrl={book.coverUrl}
+                      coverUrl={coverOverrides[book.id] || book.coverUrl}
                       title={book.title}
                       author={book.author}
                       className="group-hover:scale-105 transition-transform duration-300"

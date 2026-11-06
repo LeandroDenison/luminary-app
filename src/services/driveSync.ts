@@ -508,7 +508,7 @@ function buildBookMetadataFromFile(
     title,
     author: author || 'Autor desconhecido',
     format,
-    coverUrl: file.thumbnailLink || undefined,
+    coverUrl: undefined,
     addedAt: now,
     updatedAt: now,
     fileSize: Number(file.size) || 0,
