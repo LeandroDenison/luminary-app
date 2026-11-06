@@ -77,20 +77,41 @@ export function matchesBookSearch(
 }
 
 /**
- * Chave única normalizada para detecção e fusão de livros duplicados.
- * Agrupa livros que tenham o mesmo título essencial e formato,
- * ignorando prefixos como "Cópia de", sufixos como "(1)", pontuação e acentos.
+ * Chave única normalizada para detecção de duplicatas pelo título essencial e formato.
+ * Remove "(1)", prefixos de cópia, pontuações e acentos.
  */
-export function getBookDeduplicationKey(title: string, format: string, author?: string): string {
-  const cleaned = cleanBookTitleAndAuthor(title, author);
+export function getBookDeduplicationKey(title: string, format: string): string {
+  const cleaned = cleanBookTitleAndAuthor(title);
   let cleanTitle = cleaned.title;
   cleanTitle = cleanTitle.replace(/\s*\(\d+\)$/, '').trim();
   cleanTitle = cleanTitle.replace(/\s*[-—–]\s*c[oó]pia$/i, '').trim();
 
   const normTitle = normalizeSearchText(cleanTitle);
-  const normAuthor = cleaned.author && !/desconhecido/i.test(cleaned.author)
-    ? normalizeSearchText(cleaned.author)
-    : '';
+  return `${normTitle}|${format.toLowerCase()}`;
+}
 
-  return `${normTitle}|${format.toLowerCase()}${normAuthor ? `|${normAuthor}` : ''}`;
+/**
+ * Avalia se dois livros são a mesma obra.
+ * Considera igual se o título e formato coincidirem E:
+ * - Pelo menos um tem autor desconhecido (ex: "O Cemitério" autor desconhecido vs "O Cemitério" Stephen King)
+ * - OU ambos têm o mesmo autor.
+ */
+export function areBooksDuplicates(
+  bookA: { title: string; format: string; author?: string },
+  bookB: { title: string; format: string; author?: string }
+): boolean {
+  if (bookA.format.toLowerCase() !== bookB.format.toLowerCase()) return false;
+
+  const keyA = getBookDeduplicationKey(bookA.title, bookA.format);
+  const keyB = getBookDeduplicationKey(bookB.title, bookB.format);
+  if (keyA !== keyB) return false;
+
+  const authA = bookA.author && !/desconhecido/i.test(bookA.author) ? normalizeSearchText(bookA.author) : '';
+  const authB = bookB.author && !/desconhecido/i.test(bookB.author) ? normalizeSearchText(bookB.author) : '';
+
+  // Se um tem autor desconhecido e o outro tem autor preenchido, é a mesma obra duplicada!
+  if (!authA || !authB) return true;
+
+  // Se ambos têm autores e os autores são compatíveis
+  return authA.includes(authB) || authB.includes(authA);
 }

@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.22` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.23` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,13 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.22)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.23)
 
 ### 📖 Leitor & Usabilidade
+0. **Eliminação Inteligente de Livros Incompletos por Score de Completude (v1.0.23):**
+   * **Critério de Seleção do Mais Completo:** Avaliação objetiva por pontuação (`getBookCompletenessScore`): autor conhecido (+100), progresso de leitura (+50+prog), capa válida (+30), páginas (+20), descrição (+10), Drive (+15) e marcadores (+5 cada).
+   * **Fusão & Exclusão Automática da Cópia Incompleta:** Resolve duplicatas entre arquivos diferentes da mesma obra (ex: *"O Cemitério - Autor desconhecido"* vs *"O Cemitério - Stephen King"*). Preserva todo o progresso e arquivo do vencedor, transferindo dados faltantes e deletando o registro incompleto localmente.
+   * **Prevenção Ativa no Sync:** Durante a varredura do Google Drive, não cria novas entradas caso o livro já exista com autor parcial ou desconhecido, apenas enriquece os metadados.
 0. **Busca Ultrarrápida de Capas em Alta Resolução (v1.0.22):**
    * **Integração com Apple Books / iTunes Search API:** Busca automática de capas das edições oficiais brasileiras em alta definição (600x600 HD), sem restrições de cota ou bloqueios de CORS.
    * **Atualização em Tempo Real na Estante:** O `CoverLoader` entrega as capas com transição instantânea sem precisar recarregar toda a estante.
