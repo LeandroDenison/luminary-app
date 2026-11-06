@@ -10,9 +10,11 @@
 * **Tipo:** Aplicativo Android e PWA para leitura de livros digitais (EPUB e PDF).
 * **Foco:** Experiência de leitura premium, rápida, livre de anúncios, com tipografia profissional, persistência offline em IndexedDB e sincronização opcional com o Google Drive.
 * **Repositório de Deploy / Código:** `https://github.com/LeandroDenison/luminary-app.git`
+  * Branch `source`: Código-fonte completo (React, TypeScript, Android, scripts).
+  * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.14` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.15` (Manifesto: `version.json`)
 
 ---
 
@@ -24,7 +26,7 @@
 | **Estilização** | Tailwind CSS v4 + Lucide Icons | Dark theme nativo em tons de slate/amber |
 | **Mobile Core** | Capacitor 8 (Android) | Wrapper nativo com suporte a APIs de sistema |
 | **Leitura EPUB** | `epubjs` | Suporte a capítulos, paginação e rolagem contínua |
-| **Leitura PDF** | Canvas / PDF.js | Renderização vetorial responsiva |
+| **Leitura PDF** | Canvas / PDF.js + Reflow Engine | Renderização vetorial e modo de texto fluido adaptável |
 | **Armazenamento** | IndexedDB via `localforage` | Livros, capas, posições de leitura, bookmarks |
 | **Nuvem** | Google Drive API v3 | Autenticação Google e sincronização de pasta |
 | **Atualizações** | `@capgo/capacitor-updater` | Atualizações silenciosas Over-the-Air (OTA) |
@@ -46,7 +48,7 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.14)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.15)
 
 ### 📖 Leitor & Usabilidade
 1. **Tipografia Profissional:**
@@ -62,7 +64,14 @@
    * **Compartilhar Nativo:** Envia imagem PNG limpa via Android Share Sheet direto para o Instagram Stories/Feed ou WhatsApp.
    * **Copiar Card (Imagem):** Copia o PNG do card para o clipboard via `ClipboardItem`.
    * **Visualização Direta à Prova de Falhas:** Submodal com imagem real, permitindo toque longo do Android para salvar/compartilhar.
-4. **Gerenciamento de Biblioteca:**
+4. **Modo Reflow de PDF (Texto Fluido para Telas Pequenas - Ideia #7):**
+   * Extração de texto estruturado com agrupamento geométrico de linhas e reconstrução de parágrafos via `pdfReflow.ts`.
+   * Elimina a necessidade de dar zoom e arrastar a tela em celulares.
+   * Suporte total a troca de fontes literárias, tamanho da letra, entrelinhas e margens no PDF.
+   * Alternador rápido na barra superior: **[Texto Adaptável]** vs **[Layout Original]**.
+   * Fallback visual inteligente: páginas que contêm apenas ilustrações, fórmulas ou diagramas são renderizadas em alta resolução no próprio fluxo sem perda.
+   * Habilita a seleção direta de texto do PDF para criação de **Cards de Citação**.
+5. **Gerenciamento de Biblioteca:**
    * Busca em tempo real por título e por autor.
    * Opção de **Ocultar / Arquivar Livros** (permite limpar testes ou livros duplicados mantendo os dados preservados).
    * Filtro na biblioteca para alternar entre "Livros Ativos" e "Arquivados" com botão de desarquivar.
