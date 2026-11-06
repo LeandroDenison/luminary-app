@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  BookOpen,
   Plus,
   Search,
   Sparkles,
@@ -20,6 +19,8 @@ import { FreeBooksCatalogModal } from './FreeBooksCatalogModal';
 import { DriveSyncModal } from './DriveSyncModal';
 import { SortFilterModal, type SortOption } from './SortFilterModal';
 import { BookCover } from './BookCover';
+import { LuminaryIcon, type IconVariant } from './LuminaryIcons';
+import { IconStudioModal } from './IconStudioModal';
 import { StorageService } from '../services/storage';
 import { DriveSync, deduplicateAndMergeBooks, type SyncStatus } from '../services/driveSync';
 import { GoogleAuth } from '../services/googleAuth';
@@ -34,11 +35,12 @@ interface LibraryProps {
   books: Book[];
   onOpenBook: (book: Book) => void;
   onRefreshBooks: () => void;
+  onReplaySplash?: () => void;
 }
 
 type FilterType = 'all' | 'reading' | 'completed' | 'pdf' | 'epub' | 'archived';
 
-export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks }) => {
+export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks, onReplaySplash }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
@@ -50,6 +52,10 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [showDriveModal, setShowDriveModal] = useState(false);
+  const [activeIconVariant, setActiveIconVariant] = useState<IconVariant>(() => {
+    return (localStorage.getItem('luminary_active_icon') as IconVariant) || 'cradled-spine';
+  });
+  const [showIconStudio, setShowIconStudio] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string>('');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
@@ -58,6 +64,18 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const cloudConnected = GoogleAuth.isConnected();
 
   useEffect(() => DriveSync.subscribe((s) => setSyncStatus(s)), []);
+
+  // Permite abrir o estúdio de ícones a partir de eventos do simulador web
+  useEffect(() => {
+    const handleOpenStudio = () => setShowIconStudio(true);
+    window.addEventListener('open-icon-studio', handleOpenStudio);
+    return () => window.removeEventListener('open-icon-studio', handleOpenStudio);
+  }, []);
+
+  const handleSelectIconVariant = (v: IconVariant) => {
+    setActiveIconVariant(v);
+    localStorage.setItem('luminary_active_icon', v);
+  };
 
   // Monitora e carrega capas e metadados na web em segundo plano
   useEffect(() => {
@@ -324,8 +342,13 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 shrink-0 aspect-square">
-              <BookOpen size={19} className="shrink-0" />
+            {/* Logo do App (toque para rever a animação de entrada L-Livro) */}
+            <div
+              onClick={() => (onReplaySplash ? onReplaySplash() : setShowIconStudio(true))}
+              className="cursor-pointer hover:scale-105 active:scale-95 transition-transform shrink-0"
+              title="Toque para ver a animação de abertura Luminary"
+            >
+              <LuminaryIcon variant={activeIconVariant} size={36} />
             </div>
             <div className="min-w-0">
               <h1 className="text-base font-bold tracking-tight text-white m-0 truncate">Minha Biblioteca</h1>
@@ -776,6 +799,14 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         isOpen={showDriveModal}
         onClose={() => setShowDriveModal(false)}
         onSynced={() => refreshAndSync()}
+      />
+
+      {/* Estúdio de Teste de Ícones (L + Livro) */}
+      <IconStudioModal
+        isOpen={showIconStudio}
+        onClose={() => setShowIconStudio(false)}
+        selectedVariant={activeIconVariant}
+        onSelectVariant={handleSelectIconVariant}
       />
     </div>
   );

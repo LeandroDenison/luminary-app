@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Smartphone, Monitor, RotateCw, Wifi, BatteryCharging, DownloadCloud, ArrowLeft, ChevronLeft, Circle, Square } from 'lucide-react';
+import { Smartphone, Monitor, RotateCw, Wifi, BatteryCharging, DownloadCloud, ArrowLeft, ChevronLeft, Circle, Square, Palette, Home, Play } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 
 interface PhoneSimulatorProps {
@@ -7,9 +7,20 @@ interface PhoneSimulatorProps {
   onOpenApkGuide: () => void;
   activeBook?: any;
   onBackToLibrary?: () => void;
+  onGoToHomeScreen?: () => void;
+  onReplaySplash?: () => void;
+  isHomeScreen?: boolean;
 }
 
-export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpenApkGuide, activeBook, onBackToLibrary }) => {
+export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({
+  children,
+  onOpenApkGuide,
+  activeBook,
+  onBackToLibrary,
+  onGoToHomeScreen,
+  onReplaySplash,
+  isHomeScreen
+}) => {
   // Detecta se é o aplicativo nativo (APK) OU celular real
   const isRealMobile = Capacitor.isNativePlatform() || (typeof window !== 'undefined' && (
     window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -106,6 +117,34 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Replay Intro Splash */}
+          {onReplaySplash && (
+            <button
+              onClick={onReplaySplash}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500/30 text-amber-300 font-semibold px-2.5 py-1 rounded-lg text-xs border border-amber-500/40 shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Ver animação cinematográfica do livro caindo do L (estilo Netflix)"
+            >
+              <Play size={13} className="text-amber-400 fill-amber-400" />
+              <span>Ver Intro</span>
+            </button>
+          )}
+
+          {/* Go to Mobile Home Screen */}
+          {onGoToHomeScreen && (
+            <button
+              onClick={onGoToHomeScreen}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all active:scale-95 cursor-pointer ${
+                isHomeScreen
+                  ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md'
+                  : 'bg-slate-800 text-slate-300 hover:text-white border-slate-700'
+              }`}
+              title="Ir para a Tela Inicial (Área de trabalho do celular)"
+            >
+              <Home size={13} />
+              <span>Tela Inicial</span>
+            </button>
+          )}
+
           {activeBook && onBackToLibrary && (
             <button
               onClick={onBackToLibrary}
@@ -127,6 +166,15 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
               <span className="hidden md:inline">{isLandscape ? 'Retrato' : 'Paisagem'}</span>
             </button>
           )}
+
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-icon-studio'))}
+            className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-medium px-3 py-1 rounded-lg text-xs border border-amber-500/30 shadow-xs transition-all active:scale-95 cursor-pointer"
+            title="Testar ideias para o novo ícone do aplicativo (L + Livro)"
+          >
+            <Palette size={13} className="text-amber-400" />
+            <span>Testar Ícones (L + Livro)</span>
+          </button>
 
           <button
             onClick={handleLoadLocalCatalog}
@@ -187,29 +235,39 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
 
             {/* Bottom Android Navigation Bar */}
             <div className="h-6 bg-slate-950 flex items-center justify-around px-8 shrink-0 border-t border-slate-900/60">
-              {activeBook && onBackToLibrary ? (
-                <>
-                  <button
-                    onClick={onBackToLibrary}
-                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
-                    title="Voltar à Estante"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    onClick={onBackToLibrary}
-                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
-                    title="Tela Inicial"
-                  >
-                    <Circle size={12} />
-                  </button>
-                  <div className="p-1 text-slate-600">
-                    <Square size={12} />
-                  </div>
-                </>
-              ) : (
-                <div className="w-28 h-1 bg-slate-700/80 rounded-full" />
-              )}
+              <button
+                onClick={() => {
+                  if (activeBook && onBackToLibrary) {
+                    onBackToLibrary();
+                  } else if (onGoToHomeScreen && !isHomeScreen) {
+                    onGoToHomeScreen();
+                  }
+                }}
+                className={`p-1 transition-colors cursor-pointer ${
+                  activeBook || !isHomeScreen
+                    ? 'text-slate-400 hover:text-amber-400'
+                    : 'text-slate-600 opacity-40 pointer-events-none'
+                }`}
+                title="Voltar"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                onClick={() => onGoToHomeScreen && onGoToHomeScreen()}
+                className={`p-1 transition-colors cursor-pointer ${
+                  isHomeScreen ? 'text-amber-400' : 'text-slate-400 hover:text-amber-400'
+                }`}
+                title="Tela Inicial (Home)"
+              >
+                <Circle size={12} className={isHomeScreen ? 'fill-amber-400' : ''} />
+              </button>
+              <button
+                onClick={() => onReplaySplash && onReplaySplash()}
+                className="p-1 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+                title="Rever animação de abertura (Intro Netflix)"
+              >
+                <Square size={12} />
+              </button>
             </div>
           </div>
         ) : (

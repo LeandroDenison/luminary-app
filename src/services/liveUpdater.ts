@@ -6,7 +6,7 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
  */
 const UPDATE_MANIFEST_URL = import.meta.env.VITE_UPDATE_URL || 'https://leandrodenison.github.io/luminary-app/version.json';
 
-export const CURRENT_APP_VERSION = '1.0.26';
+export const CURRENT_APP_VERSION = '1.0.27';
 
 export type LiveUpdateStatus = 'idle' | 'checking' | 'downloading' | 'ready' | 'updated' | 'error';
 

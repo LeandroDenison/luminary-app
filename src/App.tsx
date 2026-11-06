@@ -5,6 +5,8 @@ import { PhoneSimulator } from './components/PhoneSimulator';
 import { Library } from './components/Library';
 import { ReaderContainer } from './components/Reader/ReaderContainer';
 import { ApkGuideModal } from './components/ApkGuideModal';
+import { MobileHomeScreen } from './components/MobileHomeScreen';
+import { CinematicSplash } from './components/CinematicSplash';
 import { StorageService } from './services/storage';
 import { initializeSampleBooksIfEmpty } from './services/sampleBooks';
 import { LiveUpdater } from './services/liveUpdater';
@@ -15,6 +17,8 @@ export const App: React.FC = () => {
   const [activeBook, setActiveBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
   const [showApkGuide, setShowApkGuide] = useState(false);
+  const isDevWeb = !Capacitor.isNativePlatform();
+  const [viewState, setViewState] = useState<'home' | 'splash' | 'app'>(isDevWeb ? 'home' : 'splash');
 
   const activeBookRef = useRef<Book | null>(null);
   activeBookRef.current = activeBook;
@@ -99,8 +103,21 @@ export const App: React.FC = () => {
       onOpenApkGuide={() => setShowApkGuide(true)}
       activeBook={activeBook}
       onBackToLibrary={handleManualBack}
+      onGoToHomeScreen={() => {
+        setActiveBook(null);
+        setViewState('home');
+      }}
+      onReplaySplash={() => {
+        setActiveBook(null);
+        setViewState('splash');
+      }}
+      isHomeScreen={viewState === 'home'}
     >
-      {loading ? (
+      {viewState === 'home' ? (
+        <MobileHomeScreen onLaunchApp={() => setViewState('splash')} />
+      ) : viewState === 'splash' ? (
+        <CinematicSplash onComplete={() => setViewState('app')} />
+      ) : loading ? (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-slate-300 gap-3">
           <div className="w-9 h-9 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-xs font-medium text-slate-400">Preparando sua biblioteca...</p>
@@ -115,6 +132,7 @@ export const App: React.FC = () => {
           books={books}
           onOpenBook={handleOpenBook}
           onRefreshBooks={loadBooks}
+          onReplaySplash={() => setViewState('splash')}
         />
       )}
 
