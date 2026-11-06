@@ -2,6 +2,8 @@ export type BookFormat = 'pdf' | 'epub';
 
 export type ReadingMode = 'scroll' | 'paginated';
 
+export type PdfDisplayMode = 'original' | 'reflow';
+
 export type ReaderTheme = 'light' | 'sepia' | 'dark' | 'amoled';
 
 export type ReaderFontFamily = 'literata' | 'merriweather' | 'lora' | 'atkinson' | 'inter' | 'system';
@@ -30,6 +32,7 @@ export interface Book {
   currentCfi?: string;
   progress: number; // 0 to 100
   readingMode: ReadingMode;
+  pdfDisplayMode?: PdfDisplayMode;
   theme: ReaderTheme;
   fontSize: number; // percentage or px (e.g. 16)
   fontFamily?: ReaderFontFamily;

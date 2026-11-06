@@ -17,16 +17,8 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
   const [isLandscape, setIsLandscape] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
 
-  // Se for celular real, renderiza 100% da tela sem moldura falsa de celular
-  if (isRealMobile) {
-    return (
-      <div className="w-full h-full bg-slate-950 text-slate-100 overflow-hidden">
-        {children}
-      </div>
-    );
-  }
-
   useEffect(() => {
+    if (isRealMobile) return;
     const updateClock = () => {
       const now = new Date();
       setCurrentTime(
@@ -36,7 +28,16 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
     updateClock();
     const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isRealMobile]);
+
+  // Se for celular real, renderiza 100% da tela sem moldura falsa de celular
+  if (isRealMobile) {
+    return (
+      <div className="w-full h-full bg-slate-950 text-slate-100 overflow-hidden">
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="w-screen h-screen flex flex-col bg-[#07090e] text-slate-100 overflow-hidden select-none">

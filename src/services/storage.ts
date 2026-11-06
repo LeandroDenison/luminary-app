@@ -21,7 +21,7 @@ const syncStore = localforage.createInstance({
 
 const DELETED_KEY = 'deleted_books';
 
-type ProgressFields = 'currentPage' | 'currentCfi' | 'progress' | 'totalPages' | 'lastReadAt' | 'readingMode' | 'theme' | 'fontSize' | 'bookmarks' | 'fontFamily' | 'lineHeight' | 'marginSize';
+type ProgressFields = 'currentPage' | 'currentCfi' | 'progress' | 'totalPages' | 'lastReadAt' | 'readingMode' | 'pdfDisplayMode' | 'theme' | 'fontSize' | 'bookmarks' | 'fontFamily' | 'lineHeight' | 'marginSize';
 
 export const StorageService = {
   async getAllBooks(): Promise<Book[]> {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Settings, List, Bookmark as BookmarkIcon, Scroll, BookOpen, ChevronLeft, ChevronRight, Quote, Sun } from 'lucide-react';
+import { ArrowLeft, Settings, List, Bookmark as BookmarkIcon, Scroll, BookOpen, ChevronLeft, ChevronRight, Quote, Sun, Sparkles, FileText } from 'lucide-react';
 import { PdfViewer } from './PdfViewer';
 import { EpubViewer } from './EpubViewer';
 import { ReaderSettingsModal } from './ReaderSettingsModal';
@@ -9,7 +9,7 @@ import { StorageService } from '../../services/storage';
 import { DriveSync } from '../../services/driveSync';
 import { DriveAuthError } from '../../services/driveApi';
 import { ScreenHelper } from '../../services/screenHelper';
-import type { Book, ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize } from '../../types';
+import type { Book, ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize, PdfDisplayMode } from '../../types';
 
 interface ReaderContainerProps {
   book: Book;
@@ -23,6 +23,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
 
   // Reader state
   const [readingMode, setReadingMode] = useState<ReadingMode>(book.readingMode || 'paginated');
+  const [pdfDisplayMode, setPdfDisplayMode] = useState<PdfDisplayMode>(book.pdfDisplayMode || 'reflow');
   const [theme, setTheme] = useState<ReaderTheme>(book.theme || 'sepia');
   const [fontSize, setFontSize] = useState<number>(book.fontSize || 16);
   const [fontFamily, setFontFamily] = useState<ReaderFontFamily>(book.fontFamily || 'literata');
@@ -95,7 +96,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
       try {
         let data = await StorageService.getBookFile(book.id);
         if (!data && book.driveFileId) {
-          // Book synced from another device: download it from the Google Drive now
+          // Book synced from another device: download it from Google Drive now
           try {
             data = await DriveSync.downloadBookFile(book);
           } catch (driveErr: any) {
@@ -144,6 +145,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
       progress: newProgress,
       totalPages: total,
       readingMode,
+      pdfDisplayMode,
       theme,
       fontSize
     });
@@ -167,6 +169,18 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
   const handleModeChange = (mode: ReadingMode) => {
     setReadingMode(mode);
     StorageService.updateProgress(book.id, { readingMode: mode });
+  };
+
+  // Change PDF Display Mode (Reflow vs Original)
+  const handleTogglePdfDisplayMode = () => {
+    const nextMode: PdfDisplayMode = pdfDisplayMode === 'reflow' ? 'original' : 'reflow';
+    setPdfDisplayMode(nextMode);
+    StorageService.updateProgress(book.id, { pdfDisplayMode: nextMode });
+  };
+
+  const handlePdfDisplayModeChange = (mode: PdfDisplayMode) => {
+    setPdfDisplayMode(mode);
+    StorageService.updateProgress(book.id, { pdfDisplayMode: mode });
   };
 
   // Change Theme
@@ -300,6 +314,32 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* Quick toggle Reflow (Texto Adaptável) vs Original (Layout Fiel) for PDF */}
+            {book.format === 'pdf' && (
+              <button
+                onClick={handleTogglePdfDisplayMode}
+                className={`min-h-[42px] px-2.5 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-all touch-manipulation ${
+                  pdfDisplayMode === 'reflow'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
+                    : 'bg-slate-800/80 text-slate-300 border-slate-700'
+                }`}
+                title={
+                  pdfDisplayMode === 'reflow'
+                    ? 'Modo Texto Adaptável Ativo (toque para ver Layout Original)'
+                    : 'Modo Layout Original Ativo (toque para ver Texto Adaptável)'
+                }
+              >
+                {pdfDisplayMode === 'reflow' ? (
+                  <Sparkles size={16} className="text-amber-400" />
+                ) : (
+                  <FileText size={16} />
+                )}
+                <span className="text-[10px] font-medium hidden sm:inline">
+                  {pdfDisplayMode === 'reflow' ? 'Texto Adaptável' : 'Original'}
+                </span>
+              </button>
+            )}
+
             {/* Quick toggle mode: Scroll vs Paginated */}
             <button
               onClick={() => handleModeChange(readingMode === 'paginated' ? 'scroll' : 'paginated')}
@@ -359,15 +399,15 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
       <div className="flex-1 w-full h-full relative overflow-hidden">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
-            <div className="w-9 h-9 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs">Abrindo livro...</p>
+            <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm">Carregando livro...</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center text-rose-400">
             <p className="font-medium text-sm">{error}</p>
             <button
               onClick={onBack}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs hover:bg-slate-700 mt-2"
+              className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs hover:bg-slate-700 mt-2 cursor-pointer"
             >
               Voltar à biblioteca
             </button>
@@ -379,7 +419,12 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
               currentPage={currentPage}
               totalPages={totalPages}
               readingMode={readingMode}
+              pdfDisplayMode={pdfDisplayMode}
               theme={theme}
+              fontSize={fontSize}
+              fontFamily={fontFamily}
+              lineHeight={lineHeight}
+              marginSize={marginSize}
               onPageChange={handlePdfPageChange}
               onToggleControls={() => setShowControls((prev) => !prev)}
               onLoaded={(toc) => setTocItems(toc)}
@@ -443,14 +488,14 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
           <>
             <button
               onClick={() => navRef.current?.prev()}
-              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-lg border border-slate-700 flex items-center justify-center transition-transform active:scale-90 z-20"
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-lg border border-slate-700 flex items-center justify-center transition-transform active:scale-90 z-20 cursor-pointer"
               title="Página Anterior"
             >
               <ChevronLeft size={20} />
             </button>
             <button
               onClick={() => navRef.current?.next()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-lg border border-slate-700 flex items-center justify-center transition-transform active:scale-90 z-20"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-lg border border-slate-700 flex items-center justify-center transition-transform active:scale-90 z-20 cursor-pointer"
               title="Próxima Página"
             >
               <ChevronRight size={20} />
@@ -471,7 +516,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {readingMode === 'paginated' ? (
               <button
                 onClick={() => navRef.current?.prev()}
-                className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition-all active:scale-95"
+                className="flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition-all active:scale-95 cursor-pointer"
               >
                 <ChevronLeft size={15} />
                 <span>Anterior</span>
@@ -489,7 +534,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {readingMode === 'paginated' ? (
               <button
                 onClick={() => navRef.current?.next()}
-                className="flex items-center gap-1 text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-xs"
+                className="flex items-center gap-1 text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95 shadow-xs cursor-pointer"
               >
                 <span>Próxima</span>
                 <ChevronRight size={15} />
@@ -507,6 +552,8 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
         onClose={() => setShowSettings(false)}
         readingMode={readingMode}
         onChangeReadingMode={handleModeChange}
+        pdfDisplayMode={pdfDisplayMode}
+        onChangePdfDisplayMode={handlePdfDisplayModeChange}
         theme={theme}
         onChangeTheme={handleThemeChange}
         fontSize={fontSize}
@@ -545,7 +592,9 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
           if (book.format === 'pdf' && item.pageNumber) {
             handlePdfPageChange(item.pageNumber, totalPages);
             if (readingMode === 'scroll') {
-              const el = document.getElementById(`pdf-page-${item.pageNumber}`);
+              const el = document.getElementById(
+                pdfDisplayMode === 'reflow' ? `pdf-reflow-page-${item.pageNumber}` : `pdf-page-${item.pageNumber}`
+              );
               if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
           } else if (book.format === 'epub' && item.href) {

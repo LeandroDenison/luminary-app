@@ -1,12 +1,14 @@
 import React from 'react';
-import { X, Sun, Moon, BookOpen, Scroll, Type, Bookmark as BookmarkIcon } from 'lucide-react';
-import type { ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize } from '../../types';
+import { X, Sun, Moon, BookOpen, Scroll, Type, Bookmark as BookmarkIcon, Sparkles, FileText } from 'lucide-react';
+import type { ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize, PdfDisplayMode } from '../../types';
 
 interface ReaderSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   readingMode: ReadingMode;
   onChangeReadingMode: (mode: ReadingMode) => void;
+  pdfDisplayMode?: PdfDisplayMode;
+  onChangePdfDisplayMode?: (mode: PdfDisplayMode) => void;
   theme: ReaderTheme;
   onChangeTheme: (theme: ReaderTheme) => void;
   fontSize: number;
@@ -31,6 +33,8 @@ export const ReaderSettingsModal: React.FC<ReaderSettingsModalProps> = ({
   onClose,
   readingMode,
   onChangeReadingMode,
+  pdfDisplayMode = 'reflow',
+  onChangePdfDisplayMode,
   theme,
   onChangeTheme,
   fontSize,
@@ -80,6 +84,8 @@ export const ReaderSettingsModal: React.FC<ReaderSettingsModalProps> = ({
     { id: 'large', label: 'Ampla' }
   ];
 
+  const showTypographySettings = format === 'epub' || (format === 'pdf' && pdfDisplayMode === 'reflow');
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl text-slate-100 max-h-[88vh] overflow-y-auto">
@@ -98,55 +104,92 @@ export const ReaderSettingsModal: React.FC<ReaderSettingsModalProps> = ({
         </div>
 
         {/* ☀️ Controle de Brilho da Tela */}
-        <div className="mt-4 bg-slate-800/40 p-3 rounded-2xl border border-slate-800/80">
+        <div className="mt-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
-              <Sun size={13} className="text-amber-400" />
-              <span>Brilho da Tela</span>
-            </span>
+            <label className="text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Sun size={14} className="text-amber-400" />
+              <span>Brilho da Leitura</span>
+            </label>
             <span className="text-xs text-amber-400 font-mono font-medium">{brightness}%</span>
           </div>
-          <div className="flex items-center gap-3">
-            <Sun size={14} className="text-slate-500" />
+          <div className="flex items-center gap-3 bg-slate-800/50 p-2 rounded-xl border border-slate-800">
+            <Moon size={14} className="text-slate-500" />
             <input
               type="range"
               min="20"
               max="100"
-              step="1"
+              step="5"
               value={brightness}
               onChange={(e) => onChangeBrightness(Number(e.target.value))}
               className="w-full accent-amber-500 cursor-pointer"
             />
-            <Sun size={20} className="text-amber-400" />
+            <Sun size={18} className="text-amber-400" />
           </div>
-          <p className="text-[10px] text-slate-500 mt-1.5 italic">
-            💡 Dica: você também pode deslizar o dedo na borda esquerda da tela para ajustar o brilho na hora.
+          <p className="text-[10px] text-slate-500 mt-1 px-1">
+            Dica: você também pode deslizar o dedo na borda esquerda da tela.
           </p>
         </div>
 
-        {/* Modo de Passar a Página */}
+        {/* Modo de Visualização para PDF (Reflow vs Original) */}
+        {format === 'pdf' && (
+          <div className="mt-5">
+            <label className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-2">
+              Modo de Exibição do PDF
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onChangePdfDisplayMode?.('reflow')}
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                  pdfDisplayMode === 'reflow'
+                    ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500 shadow-xs'
+                    : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                <Sparkles size={16} className={pdfDisplayMode === 'reflow' ? 'text-amber-400' : ''} />
+                <span>Texto Adaptável (Reflow)</span>
+              </button>
+              <button
+                onClick={() => onChangePdfDisplayMode?.('original')}
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                  pdfDisplayMode === 'original'
+                    ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500 shadow-xs'
+                    : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                <FileText size={16} />
+                <span>Layout Fiel (Original)</span>
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1.5 px-1">
+              {pdfDisplayMode === 'reflow'
+                ? '✨ Extrai os parágrafos e reformata o texto responsivamente para celular, sem precisar dar zoom lateral.'
+                : '📄 Exibe as páginas com sua diagramação e imagens originais idênticas ao arquivo.'}
+            </p>
+          </div>
+        )}
+
+        {/* Modo de Navegação (Paginado vs Scroll) */}
         <div className="mt-5">
           <label className="text-xs font-medium text-slate-400 uppercase tracking-wider block mb-2">
-            Modo de Passar a Página
+            Modo de Navegação
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => onChangeReadingMode('paginated')}
-              className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                 readingMode === 'paginated'
-                  ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500'
+                  ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500 shadow-xs'
                   : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:bg-slate-800'
               }`}
             >
               <BookOpen size={18} />
-              <span>Arrastar / Livro</span>
+              <span>Páginas (Lateral)</span>
             </button>
-
             <button
               onClick={() => onChangeReadingMode('scroll')}
-              className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
                 readingMode === 'scroll'
-                  ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500'
+                  ? 'border-amber-500 bg-amber-500/15 text-amber-300 ring-1 ring-amber-500 shadow-xs'
                   : 'border-slate-800 bg-slate-800/50 text-slate-400 hover:bg-slate-800'
               }`}
             >
@@ -190,8 +233,8 @@ export const ReaderSettingsModal: React.FC<ReaderSettingsModalProps> = ({
           </div>
         </div>
 
-        {/* Configurações Tipográficas para EPUB */}
-        {format === 'epub' && (
+        {/* Configurações Tipográficas para EPUB e PDF Reflow */}
+        {showTypographySettings && (
           <>
             {/* Seletor de Fontes */}
             <div className="mt-5">
