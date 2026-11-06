@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.15` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.16` (Manifesto: `version.json`)
 
 ---
 
@@ -71,6 +71,7 @@
    * Alternador rápido na barra superior: **[Texto Adaptável]** vs **[Layout Original]**.
    * Fallback visual inteligente: páginas que contêm apenas ilustrações, fórmulas ou diagramas são renderizadas em alta resolução no próprio fluxo sem perda.
    * Habilita a seleção direta de texto do PDF para criação de **Cards de Citação**.
+   * **Seleção & Cópia Facilitada:** Barra flutuante de ação rápida ao selecionar texto (`[Copiar]` e `[Criar Card]`), com permissões CSS irrestritas (`user-select: text !important`) e prevenção de virada de página por engano durante a seleção.
 5. **Gerenciamento de Biblioteca:**
    * Busca em tempo real por título e por autor.
    * Opção de **Ocultar / Arquivar Livros** (permite limpar testes ou livros duplicados mantendo os dados preservados).
