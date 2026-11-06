@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.17` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.18` (Manifesto: `version.json`)
 
 ---
 
@@ -28,7 +28,7 @@
 | **Leitura EPUB** | `epubjs` | Suporte a capítulos, paginação e rolagem contínua |
 | **Leitura PDF** | Canvas / PDF.js + Reflow Engine | Renderização vetorial e modo de texto fluido adaptável |
 | **Armazenamento** | IndexedDB via `localforage` | Livros, capas, posições de leitura, bookmarks |
-| **Nuvem** | Google Drive API v3 | Autenticação Google e sincronização de pasta |
+| **Nuvem** | Google Drive API v3 | Autenticação Google, varredura recursiva de pastas e sincronização |
 | **Atualizações** | `@capgo/capacitor-updater` | Atualizações silenciosas Over-the-Air (OTA) |
 | **Compartilhar** | `@capacitor/share` + `@capacitor/filesystem` | Compartilhamento nativo de imagens para Instagram/WhatsApp |
 
@@ -48,7 +48,7 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.15)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.18)
 
 ### 📖 Leitor & Usabilidade
 1. **Tipografia Profissional:**
@@ -72,11 +72,15 @@
    * Fallback visual inteligente: páginas que contêm apenas ilustrações, fórmulas ou diagramas são renderizadas em alta resolução no próprio fluxo sem perda.
    * Habilita a seleção direta de texto do PDF para criação de **Cards de Citação**.
    * **Seleção & Cópia Facilitada (EPUB & PDF):** Barra flutuante de ação rápida ao selecionar texto (`[Copiar]` e `[Criar Card]`) ativa em livros EPUB e PDF Reflow, com permissões CSS irrestritas (`user-select: text !important`), destaque visual em tom âmbar e prevenção de virada de página acidental durante a seleção.
-5. **Gerenciamento de Biblioteca:**
-   * Busca em tempo real por título e por autor.
+5. **Varredura Recursiva de Subpastas & Séries no Google Drive (v1.0.18):**
+   * Reconhecimento automático de livros em qualquer nível de profundidade de subpastas no Google Drive (BFS em lotes otimizados).
+   * Identificação de pastas de autores e coleções/séries (ex: `livros / Stephen King / A Torre Negra / Livro.epub`).
+   * Inferência inteligente: quando o PDF ou EPUB não possui metadados de autor pré-gravados ou está como "Desconhecido", o nome da pasta do autor é associado automaticamente, e a série/coleção é anexada à descrição do livro.
+6. **Gerenciamento de Biblioteca:**
+   * Busca em tempo real por título e por autor (independente de acentos ou maiúsculas).
    * Opção de **Ocultar / Arquivar Livros** (permite limpar testes ou livros duplicados mantendo os dados preservados).
    * Filtro na biblioteca para alternar entre "Livros Ativos" e "Arquivados" com botão de desarquivar.
-   * Sincronização e backup com pasta dedicada no Google Drive.
+   * Sincronização bidirecional e backup com o Google Drive.
 
 ---
 
@@ -113,16 +117,16 @@ npm run dev
 npm run build
 ```
 
-### Empacotar e publicar versão OTA (Exemplo para v1.0.15):
+### Empacotar e publicar versão OTA:
 ```bash
 # 1. Atualizar CURRENT_APP_VERSION em src/services/liveUpdater.ts
 # 2. Executar o empacotador OTA:
-node scripts/package-ota.js 1.0.15
+node scripts/package-ota.js 1.0.18
 
 # 3. Comitar e subir no repositório deploy_pages:
 cd deploy_pages
 git add -A
-git commit -m "Release v1.0.15"
+git commit -m "Release v1.0.18"
 git push origin main
 ```
 

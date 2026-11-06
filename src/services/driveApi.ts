@@ -24,6 +24,12 @@ export interface DriveFile {
   modifiedTime?: string;
   ownedByMe?: boolean;
   owners?: { emailAddress?: string; displayName?: string }[];
+  parents?: string[];
+}
+
+export interface ScannedCandidate {
+  file: DriveFile;
+  folderPath: string[];
 }
 
 async function driveFetch(url: string, init: RequestInit = {}): Promise<Response> {
@@ -53,7 +59,7 @@ function escapeQuery(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,ownedByMe,owners(emailAddress,displayName)';
+const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,ownedByMe,owners(emailAddress,displayName),parents';
 
 export const DriveApi = {
   async getUser(): Promise<{ email: string; name: string }> {
@@ -96,6 +102,66 @@ export const DriveApi = {
 
   async listChildren(parentId: string): Promise<DriveFile[]> {
     return this.list(`'${parentId}' in parents and trashed = false`);
+  },
+
+  /**
+   * Varre recursivamente todas as subpastas a partir dos nós raiz fornecidos.
+   * Processa em lotes de pastas (BFS) e associa a cada arquivo o caminho de pastas em que ele está contido.
+   */
+  async listDescendants(
+    roots: { id: string; name?: string; path?: string[] }[]
+  ): Promise<ScannedCandidate[]> {
+    const queue: { id: string; name: string; path: string[] }[] = [];
+    const visited = new Set<string>();
+
+    for (const r of roots) {
+      if (!r.id || visited.has(r.id)) continue;
+      visited.add(r.id);
+      queue.push({
+        id: r.id,
+        name: r.name || '',
+        path: r.path || (r.name ? [r.name] : [])
+      });
+    }
+
+    const candidates: ScannedCandidate[] = [];
+
+    while (queue.length > 0) {
+      const batch = queue.splice(0, 15);
+      const batchMap = new Map<string, { id: string; name: string; path: string[] }>();
+      for (const item of batch) {
+        batchMap.set(item.id, item);
+      }
+
+      const parentClauses = batch.map((item) => `'${item.id}' in parents`).join(' or ');
+      const query = `(${parentClauses}) and trashed = false`;
+
+      const children = await this.list(query);
+
+      for (const child of children) {
+        const parentId = child.parents?.find((pid) => batchMap.has(pid)) || batch[0].id;
+        const parentItem = batchMap.get(parentId) || batch[0];
+        const childPath = parentItem.path.concat(child.name);
+
+        if (child.mimeType === FOLDER_MIME) {
+          if (!visited.has(child.id)) {
+            visited.add(child.id);
+            queue.push({
+              id: child.id,
+              name: child.name,
+              path: childPath
+            });
+          }
+        } else {
+          candidates.push({
+            file: child,
+            folderPath: parentItem.path
+          });
+        }
+      }
+    }
+
+    return candidates;
   },
 
   async createFolder(name: string, parentId?: string): Promise<DriveFile> {

@@ -55,6 +55,42 @@ function safeFileName(title: string, format: BookFormat) {
   return `${base}.${format}`;
 }
 
+// Nomes de pastas genéricas que não representam autores ou séries
+const GENERIC_FOLDER_NAMES = new Set([
+  'luminary leitor',
+  'luminary',
+  'livros',
+  'books',
+  'meus livros',
+  'my books',
+  'biblioteca',
+  'library',
+  'ebooks',
+  'e-books'
+]);
+
+export function extractMetadataFromFolderPath(folderPath: string[]): {
+  author?: string;
+  series?: string;
+} {
+  const meaningful = folderPath
+    .map((p) => p.trim())
+    .filter((p) => p && !GENERIC_FOLDER_NAMES.has(p.toLowerCase()));
+
+  if (meaningful.length === 0) return {};
+
+  if (meaningful.length === 1) {
+    // 1 pasta: pode ser autor ou série (ex: "Stephen King" ou "Harry Potter")
+    return { author: meaningful[0] };
+  }
+
+  // 2 ou mais pastas: ex: ["Stephen King", "A Torre Negra"] ou ["J.K. Rowling", "Harry Potter"]
+  // A primeira pasta é o Autor, e as seguintes são Série / Coleção
+  const author = meaningful[0];
+  const series = meaningful.slice(1).join(' - ');
+  return { author, series };
+}
+
 // ---- Status listeners (so the UI can show a cloud indicator) ----
 type Listener = (status: SyncStatus, message?: string) => void;
 const listeners = new Set<Listener>();
@@ -254,22 +290,24 @@ export const DriveSync = {
         }
       }
 
-      // ---- 6. Import PDFs/EPUBs added manually to the Drive folder ----
+      // ---- 6. Import PDFs/EPUBs added manually to the Drive folder and all subfolders ----
       const knownFileIds = new Set(Object.values(merged).map((b) => b.driveFileId).filter(Boolean));
       const deletedFileIds = new Set(Object.values(deleted).map((d) => d.driveFileId).filter(Boolean));
-      const candidates = [
-        ...(await DriveApi.listChildren(folder.booksId)),
-        ...(await DriveApi.listChildren(folder.rootId))
-      ];
+      
+      setStatus('syncing', 'Varrendo pastas e subpastas no Drive...');
+      const candidates = await DriveApi.listDescendants([
+        { id: folder.booksId, name: BOOKS_FOLDER_NAME, path: [BOOKS_FOLDER_NAME] },
+        { id: folder.rootId, name: ROOT_FOLDER_NAME, path: [] }
+      ]);
 
-      for (const file of candidates) {
+      for (const { file, folderPath } of candidates) {
         const format = formatFromFile(file);
         if (!format || knownFileIds.has(file.id) || deletedFileIds.has(file.id)) continue;
 
         setStatus('syncing', `Importando "${file.name}" do Drive...`);
         try {
           const data = await DriveApi.downloadFile(file.id);
-          const book = await buildBookFromFile(file, format, data);
+          const book = await buildBookFromFile(file, format, data, folderPath);
           await StorageService.saveBook(book, data, { preserveTimestamp: true });
           merged[book.id] = book;
           knownFileIds.add(file.id);
@@ -324,7 +362,12 @@ export const DriveSync = {
   }
 };
 
-async function buildBookFromFile(file: DriveFile, format: BookFormat, data: ArrayBuffer): Promise<Book> {
+async function buildBookFromFile(
+  file: DriveFile,
+  format: BookFormat,
+  data: ArrayBuffer,
+  folderPath: string[] = []
+): Promise<Book> {
   let title = file.name.replace(/\.(pdf|epub)$/i, '');
   let author = 'Autor desconhecido';
   let coverUrl: string | undefined;
@@ -345,10 +388,33 @@ async function buildBookFromFile(file: DriveFile, format: BookFormat, data: Arra
     description = meta.description;
   }
 
+  // Extrai autor e série inferidos da estrutura de pastas
+  const folderMeta = extractMetadataFromFolderPath(folderPath);
+
+  // Se o autor não foi detectado no arquivo, tenta o autor da pasta
+  const isAuthorUnknown = !author || /desconhecido/i.test(author);
+  if (isAuthorUnknown && folderMeta.author) {
+    author = folderMeta.author;
+  }
+
   // Remove prefixos automáticos como "Cópia de " e formata título/autor
   const cleaned = cleanBookTitleAndAuthor(title, author);
   title = cleaned.title;
   author = cleaned.author;
+
+  // Se mesmo após a limpeza ainda estiver como desconhecido, garante o autor da pasta
+  if ((!author || /desconhecido/i.test(author)) && folderMeta.author) {
+    author = folderMeta.author;
+  }
+
+  // Se detectou série a partir da subpasta, enriquece a descrição
+  if (folderMeta.series) {
+    if (!description) {
+      description = `Série: ${folderMeta.series}`;
+    } else if (!description.toLowerCase().includes(folderMeta.series.toLowerCase())) {
+      description = `${description}\n\nSérie: ${folderMeta.series}`;
+    }
+  }
 
   const now = Date.now();
   return {
