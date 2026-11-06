@@ -92,11 +92,15 @@ export const App: React.FC = () => {
   }, [handleCloseReader]);
 
   useEffect(() => {
-    loadBooks();
     // Notifica sistema nativo e busca atualizações silenciosas em background
     LiveUpdater.notifyReady();
     LiveUpdater.checkForUpdates();
-  }, [loadBooks]);
+    // Se não estiver exibindo a animação de entrada, carrega imediatamente;
+    // caso contrário, aguarda o término da animação para não travar a thread principal no final do zoom 3D!
+    if (viewState !== 'splash') {
+      loadBooks();
+    }
+  }, [loadBooks, viewState]);
 
   return (
     <PhoneSimulator

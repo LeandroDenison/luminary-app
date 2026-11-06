@@ -53,7 +53,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [showDriveModal, setShowDriveModal] = useState(false);
   const [activeIconVariant, setActiveIconVariant] = useState<IconVariant>(() => {
-    return (localStorage.getItem('luminary_active_icon') as IconVariant) || 'cradled-spine';
+    return (localStorage.getItem('luminary_active_icon_v2') as IconVariant) || 'cradled-spine';
   });
   const [showIconStudio, setShowIconStudio] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -74,7 +74,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
 
   const handleSelectIconVariant = (v: IconVariant) => {
     setActiveIconVariant(v);
-    localStorage.setItem('luminary_active_icon', v);
+    localStorage.setItem('luminary_active_icon_v2', v);
   };
 
   // Monitora e carrega capas e metadados na web em segundo plano
