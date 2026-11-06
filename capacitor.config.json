@@ -1,0 +1,9 @@
+{
+  "appId": "com.luminary.reader",
+  "appName": "Luminary Leitor",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}

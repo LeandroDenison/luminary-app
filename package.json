@@ -1,0 +1,46 @@
+{
+  "name": "leitor-livros",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:open": "npx cap open android",
+    "build:apk": "npm run build && npx cap sync android && cd android && ./gradlew.bat assembleDebug",
+    "package:ota": "npm run build && node scripts/package-ota.js",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "@capacitor/status-bar": "^8.0.4",
+    "@capgo/capacitor-social-login": "^8.7.6",
+    "@capgo/capacitor-updater": "^8.54.2",
+    "@tailwindcss/vite": "^4.3.4",
+    "clsx": "^2.1.1",
+    "epubjs": "^0.3.93",
+    "localforage": "^1.10.0",
+    "lucide-react": "^1.69.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.90.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6"
+  }
+}
