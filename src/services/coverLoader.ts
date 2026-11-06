@@ -1,5 +1,5 @@
 import { StorageService } from './storage';
-import { cleanBookTitleAndAuthor, isSuspiciousAuthor } from '../utils/textCleaner';
+import { cleanBookTitleAndAuthor, isKnownSeriesName, isSuspiciousAuthor } from '../utils/textCleaner';
 import { parseEpubFile } from './epubHelper';
 import type { Book } from '../types';
 
@@ -36,14 +36,14 @@ export function needsCover(book: Book): boolean {
  * Avalia se o livro precisa de enriquecimento online:
  * - Sem capa
  * - Autor ausente, desconhecido ou suspeito (ex: nome de série como "Cinquenta Tons", "Shadowhunters", ou título repetido como "Cujo")
- * - Título com prefixo de volume não limpo (#1 Grey, #2 Mais Escuro)
+ * - Título com prefixo de volume não limpo ([01] Crepúsculo, #1 Grey, #2 Mais Escuro)
  * - Sem sinopse / descrição
  */
 export function needsEnrichment(book: Book): boolean {
   if (needsCover(book)) return true;
   if (!book.author || isSuspiciousAuthor(book.author, book.title)) return true;
   if (!book.description) return true;
-  if (/^#?\d{1,3}\s*[-–—.:]?/.test(book.title)) return true;
+  if (/^(?:\[\d+(?:\.\d+)?\]|#?\d{1,3}\s*[-–—.:])/.test(book.title)) return true;
   return false;
 }
 
@@ -51,7 +51,6 @@ export function needsEnrichment(book: Book): boolean {
  * Busca metadados e capa oficial de livros na web:
  * 1. Apple Books / iTunes Search API (rápida, oficial brasileira, sem restrição de cota, capas HD 600x600)
  * 2. Open Library API (aberta)
- * 3. Google Books API
  */
 export async function fetchOnlineMetadata(
   rawTitle: string,
@@ -161,13 +160,18 @@ export const CoverLoader = {
     let changed = false;
 
     // 1. Inspeciona o arquivo local (se já baixado) para extrair metadados oficiais do EPUB
+    // NUNCA sobrescreve um autor já válido (ex: vindo da pasta organizada do Drive) por metadados internos sujos do EPUB!
     if (book.format === 'epub') {
       try {
         const file = await StorageService.getBookFile(book.id);
         if (file) {
           const buffer = file instanceof Blob ? await file.arrayBuffer() : file;
           const epubMeta = await parseEpubFile(buffer);
-          if (epubMeta.author && !isSuspiciousAuthor(epubMeta.author)) {
+          if (
+            epubMeta.author &&
+            !isSuspiciousAuthor(epubMeta.author, updated.title) &&
+            isSuspiciousAuthor(updated.author, updated.title)
+          ) {
             updated.author = epubMeta.author;
             changed = true;
           }
@@ -183,10 +187,14 @@ export const CoverLoader = {
       } catch {}
     }
 
-    // 2. Limpa prefixos de séries e volume (#1 Grey -> Vol: 1, Titulo: Grey)
+    // 2. Limpa prefixos de séries e volume ([01] Crepúsculo, #1 Grey -> Vol: 1)
     const cleaned = cleanBookTitleAndAuthor(updated.title, updated.author, updated.series);
     if (cleaned.title !== updated.title) {
       updated.title = cleaned.title;
+      changed = true;
+    }
+    if (cleaned.author && cleaned.author !== updated.author && !/desconhecido/i.test(cleaned.author)) {
+      updated.author = cleaned.author;
       changed = true;
     }
     if (cleaned.volume && updated.volume !== cleaned.volume) {
@@ -203,7 +211,7 @@ export const CoverLoader = {
     const meta = await fetchOnlineMetadata(updated.title, updated.author, updated.series);
 
     if (meta.author && (authorIsSuspect || !updated.author || /desconhecido/i.test(updated.author))) {
-      if (authorIsSuspect && updated.author && isSuspiciousAuthor(updated.author) && !updated.series) {
+      if (authorIsSuspect && updated.author && isKnownSeriesName(updated.author) && !updated.series) {
         updated.series = updated.author;
       }
       updated.author = meta.author;
@@ -245,14 +253,18 @@ export const CoverLoader = {
         let changed = false;
         const updated: Book = { ...book };
 
-        // 1. Inspeciona o arquivo local se existir
+        // 1. Inspeciona o arquivo local se existir (sem sobrescrever autor válido da pasta)
         if (book.format === 'epub') {
           try {
             const file = await StorageService.getBookFile(book.id);
             if (file) {
               const buffer = file instanceof Blob ? await file.arrayBuffer() : file;
               const epubMeta = await parseEpubFile(buffer);
-              if (epubMeta.author && !isSuspiciousAuthor(epubMeta.author)) {
+              if (
+                epubMeta.author &&
+                !isSuspiciousAuthor(epubMeta.author, updated.title) &&
+                isSuspiciousAuthor(updated.author, updated.title)
+              ) {
                 updated.author = epubMeta.author;
                 changed = true;
               }
@@ -268,10 +280,14 @@ export const CoverLoader = {
           } catch {}
         }
 
-        // 2. Limpa prefixos de continuação ("#1 Grey", "#2 Mais Escuro", "#2 Cidade das Cinzas")
+        // 2. Limpa prefixos de continuação ("[01] Crepúsculo", "#1 Grey", "#2 Mais Escuro")
         const cleaned = cleanBookTitleAndAuthor(updated.title, updated.author, updated.series);
         if (cleaned.title !== updated.title) {
           updated.title = cleaned.title;
+          changed = true;
+        }
+        if (cleaned.author && cleaned.author !== updated.author && !/desconhecido/i.test(cleaned.author)) {
+          updated.author = cleaned.author;
           changed = true;
         }
         if (cleaned.volume && updated.volume !== cleaned.volume) {
@@ -289,7 +305,7 @@ export const CoverLoader = {
           const meta = await fetchOnlineMetadata(updated.title, updated.author, updated.series);
 
           if (meta.author && (authorIsSuspect || !updated.author || /desconhecido/i.test(updated.author))) {
-            if (authorIsSuspect && updated.author && isSuspiciousAuthor(updated.author) && !updated.series) {
+            if (authorIsSuspect && updated.author && isKnownSeriesName(updated.author) && !updated.series) {
               updated.series = updated.author;
             }
             updated.author = meta.author;

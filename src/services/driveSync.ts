@@ -180,8 +180,16 @@ export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> 
     const winner = { ...group[0] };
     const losers = group.slice(1);
 
+    // Se houver uma entrada mais recente com driveFileId (ex: da pasta Organizado), usa o driveFileId mais recente
+    const newestDriveEntry = [...group]
+      .filter((b) => b.driveFileId)
+      .sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0))[0];
+    if (newestDriveEntry?.driveFileId) {
+      winner.driveFileId = newestDriveEntry.driveFileId;
+    }
+
     for (const loser of losers) {
-      if ((!winner.author || /desconhecido/i.test(winner.author)) && loser.author && !/desconhecido/i.test(loser.author)) {
+      if ((!winner.author || isSuspiciousAuthor(winner.author, winner.title)) && loser.author && !isSuspiciousAuthor(loser.author, loser.title)) {
         winner.author = loser.author;
       }
       if (!winner.driveFileId && loser.driveFileId) {
@@ -195,6 +203,14 @@ export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> 
       }
       if (!winner.coverUrl && loser.coverUrl) {
         winner.coverUrl = loser.coverUrl;
+      }
+      if ((!winner.fileSize || winner.fileSize === 0) && loser.fileSize && loser.fileSize > 0) {
+        winner.fileSize = loser.fileSize;
+      }
+      if ((loser.progress || 0) > (winner.progress || 0)) {
+        winner.progress = loser.progress;
+        winner.currentPage = loser.currentPage || winner.currentPage;
+        winner.currentCfi = loser.currentCfi || winner.currentCfi;
       }
       if ((!winner.description || winner.description.length < 10) && loser.description) {
         winner.description = loser.description;
@@ -218,6 +234,13 @@ export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> 
       // Exclui a versão incompleta do armazenamento
       await StorageService.removeLocalOnly(loser.id);
     }
+
+    // Higieniza título/autor/volume do vencedor
+    const cleaned = cleanBookTitleAndAuthor(winner.title, winner.author, winner.series);
+    winner.title = cleaned.title;
+    if (cleaned.author && !/desconhecido/i.test(cleaned.author)) winner.author = cleaned.author;
+    if (cleaned.series) winner.series = cleaned.series;
+    if (cleaned.volume && !winner.volume) winner.volume = cleaned.volume;
 
     await StorageService.saveBook(winner, undefined, { preserveTimestamp: true });
   }
@@ -391,8 +414,16 @@ export const DriveSync = {
 
         let winner: Book;
         if (local && rem) {
-          winner = (rem.updatedAt || 0) > (local.updatedAt || 0) ? { ...rem } : { ...local };
+          winner = (rem.updatedAt || 0) >= (local.updatedAt || 0) ? { ...rem } : { ...local };
           winner.driveFileId = winner.driveFileId || local.driveFileId || rem.driveFileId;
+          if ((local.progress || 0) > (winner.progress || 0)) {
+            winner.progress = local.progress;
+            winner.currentPage = local.currentPage || winner.currentPage;
+            winner.currentCfi = local.currentCfi || winner.currentCfi;
+          }
+          if (!winner.coverUrl && (local.coverUrl || rem.coverUrl)) {
+            winner.coverUrl = local.coverUrl || rem.coverUrl;
+          }
         } else {
           winner = { ...(local || rem)! };
         }
@@ -447,9 +478,9 @@ export const DriveSync = {
       }
 
       // ---- 6. Catalog PDFs/EPUBs found in Drive and subfolders (SEM DUPLICIDADE) ----
-      const knownFileIds = new Set(Object.values(merged).map((b) => b.driveFileId).filter(Boolean));
       const deletedFileIds = new Set(Object.values(deleted).map((d) => d.driveFileId).filter(Boolean));
-      
+      const activeDriveFileIds = new Set<string>();
+
       setStatus('syncing', 'Varrendo pastas e subpastas no Drive...');
       const candidates = await DriveApi.listDescendants([
         { id: folder.booksId, name: BOOKS_FOLDER_NAME, path: [BOOKS_FOLDER_NAME] },
@@ -459,42 +490,67 @@ export const DriveSync = {
       let newCatalogCount = 0;
       for (const { file, folderPath } of candidates) {
         const format = formatFromFile(file);
-        if (!format || knownFileIds.has(file.id) || deletedFileIds.has(file.id)) continue;
+        if (!format || deletedFileIds.has(file.id)) continue;
+        activeDriveFileIds.add(file.id);
 
         try {
           const book = buildBookMetadataFromFile(file, format, folderPath);
 
-          // Verifica se já existe um livro duplicado no merged
+          // Verifica se já existe este arquivo ou obra equivalente no merged
           const existing = Object.values(merged).find(
             (b) => (b.driveFileId && b.driveFileId === file.id) || areBooksDuplicates(b, book)
           );
 
           if (existing) {
-            // Se já existe na estante, conecta o driveFileId e atualiza autor se antes era desconhecido
             let updated = false;
-            if (!existing.driveFileId) {
+            if (existing.driveFileId !== file.id) {
               existing.driveFileId = file.id;
               updated = true;
             }
-            if ((!existing.author || /desconhecido/i.test(existing.author)) && book.author && !/desconhecido/i.test(book.author)) {
+            if (book.fileSize && existing.fileSize !== book.fileSize) {
+              existing.fileSize = book.fileSize;
+              updated = true;
+            }
+            if (book.title && existing.title !== book.title) {
+              existing.title = book.title;
+              updated = true;
+            }
+            if (book.author && !/desconhecido/i.test(book.author) && existing.author !== book.author) {
               existing.author = book.author;
+              updated = true;
+            }
+            if (book.series && existing.series !== book.series) {
+              existing.series = book.series;
+              updated = true;
+            }
+            if (book.volume && existing.volume !== book.volume) {
+              existing.volume = book.volume;
               updated = true;
             }
             if (updated) {
               await StorageService.saveBook(existing, undefined, { preserveTimestamp: true });
             }
-            knownFileIds.add(file.id);
             continue; // NÃO CRIA CÓPIA DUPLICADA!
           }
 
           // Catalogação leve e instantânea: entrega a estante imediatamente
           await StorageService.saveBook(book, undefined, { preserveTimestamp: true });
           merged[book.id] = book;
-          knownFileIds.add(file.id);
           result.imported++;
           newCatalogCount++;
         } catch (err) {
           console.warn(`Não foi possível catalogar ${file.name}:`, err);
+        }
+      }
+
+      // Remove livros órfãos do Drive antigo que não existem mais na pasta ativa
+      if (activeDriveFileIds.size > 0) {
+        for (const [id, b] of Object.entries(merged)) {
+          if (b.id.startsWith('drive-') && (!b.driveFileId || !activeDriveFileIds.has(b.driveFileId))) {
+            delete merged[id];
+            await StorageService.removeLocalOnly(id);
+            result.removedLocal++;
+          }
         }
       }
 
