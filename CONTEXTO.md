@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.19` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.20` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,12 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.19)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.20)
 
 ### 📖 Leitor & Usabilidade
+0. **Carregamento Assíncrono de Capas & Reconhecimento Profundo (v1.0.20):**
+   * **Carregamento Suave em Segundo Plano:** O `CoverLoader` busca miniaturas leves do Google Drive e APIs abertas (Google Books / Open Library) gradualmente durante o uso do app, sem travar a interface, e salva localmente no IndexedDB de forma definitiva.
+   * **Extração Infalível de Capas em EPUBs:** Algoritmo profundo em 4 camadas que inspeciona o manifesto (`properties="cover-image"`), a primeira página do spine (`cover.xhtml` com tags `<img>` ou `<image>` SVG) e varredura do arquivo ZIP. Corrige o reconhecimento de capas em obras brasileiras da Suma/LeYa (ex: *"A Hora do Vampiro"* e *"O Cemitério"* de Stephen King).
 0. **Catálogo Leve & Download Sob Demanda (v1.0.19):**
    * **Sincronização Ultrarrápida:** Entrega a estante completa com título, autor, formato e série em poucos segundos, sem baixar gigabytes de arquivos pesados durante o sync.
    * **Download 100% Sob Demanda:** O arquivo PDF/EPUB pesado só é baixado quando o usuário toca no livro para ler pela primeira vez, poupando a memória do celular e a internet móvel.

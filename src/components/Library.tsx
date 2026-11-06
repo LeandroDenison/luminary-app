@@ -22,6 +22,7 @@ import { StorageService } from '../services/storage';
 import { DriveSync, type SyncStatus } from '../services/driveSync';
 import { GoogleAuth } from '../services/googleAuth';
 import { LiveUpdater, CURRENT_APP_VERSION, type LiveUpdateStatus } from '../services/liveUpdater';
+import { CoverLoader } from '../services/coverLoader';
 import { parsePdfFile } from '../services/pdfHelper';
 import { parseEpubFile } from '../services/epubHelper';
 import { matchesBookSearch, cleanBookTitleAndAuthor } from '../utils/textCleaner';
@@ -49,6 +50,17 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const cloudConnected = GoogleAuth.isConnected();
 
   useEffect(() => DriveSync.subscribe((s) => setSyncStatus(s)), []);
+
+  // Monitora e carrega capas em segundo plano ao longo do uso do app
+  useEffect(() => {
+    CoverLoader.queueBooks(books);
+  }, [books]);
+
+  useEffect(() => {
+    return CoverLoader.subscribe(() => {
+      onRefreshBooks();
+    });
+  }, [onRefreshBooks]);
   useEffect(() => {
     return LiveUpdater.subscribe((s) => {
       setLiveUpdateStatus(s);

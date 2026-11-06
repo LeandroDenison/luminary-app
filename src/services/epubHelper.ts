@@ -83,6 +83,128 @@ export function generateCoverDataUrl(title: string, author: string, gradientColo
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
+/**
+ * Tenta extrair a capa real do EPUB através de múltiplas estratégias exaustivas.
+ * Resolve casos onde book.coverUrl() falha (ex: Stephen King da Suma/LeYa, capas em SVG, capa na página 1).
+ */
+export async function extractCoverFromEpub(book: any): Promise<string | undefined> {
+  // 1. Tenta o coverUrl nativo do epubjs
+  try {
+    const rawCoverUrl = await book.coverUrl();
+    if (rawCoverUrl) {
+      const b64 = await urlToBase64(rawCoverUrl);
+      if (b64 && b64.length > 500 && !b64.includes('undefined')) return b64;
+    }
+  } catch {}
+
+  // 2. Busca no package.manifest (EPUB 3 properties="cover-image" ou id com "cover"/"capa")
+  try {
+    const manifest = book.package?.manifest || {};
+    const items = Object.values(manifest) as Array<any>;
+
+    // 2a. Procura por item com properties="cover-image" (EPUB 3 standard)
+    let coverItem = items.find((i) => i.properties && i.properties.includes('cover-image'));
+
+    // 2b. Procura por ID contendo 'cover' ou 'capa'
+    if (!coverItem) {
+      coverItem = items.find(
+        (i) => i.id && /cover|capa/i.test(i.id) && i.type && i.type.startsWith('image/')
+      );
+    }
+
+    // 2c. Procura por href contendo 'cover' ou 'capa'
+    if (!coverItem) {
+      coverItem = items.find(
+        (i) => i.href && /cover|capa/i.test(i.href) && /\.(jpe?g|png|webp)$/i.test(i.href)
+      );
+    }
+
+    if (coverItem?.href && book.archive) {
+      try {
+        const url = await book.archive.createUrl(coverItem.href, { base64: true });
+        if (url && url.length > 500) return url;
+      } catch {}
+    }
+  } catch {}
+
+  // 3. Inspeciona a primeira seção do spine (onde fica a página 1 da capa em livros como Stephen King)
+  try {
+    if (book.spine && book.spine.spineItems && book.spine.spineItems.length > 0) {
+      const firstSection = book.spine.get(0);
+      if (firstSection) {
+        const contents = await firstSection.load(book.load.bind(book));
+        let htmlContent = '';
+        if (typeof contents === 'string') {
+          htmlContent = contents;
+        } else if (contents && (contents as any).documentElement) {
+          htmlContent = (contents as any).documentElement.innerHTML || '';
+        }
+
+        // Procura por tag <img src="..."> ou <image xlink:href="..."> / <image href="...">
+        const match =
+          htmlContent.match(/<img[^>]+src=["']([^"']+)["']/i) ||
+          htmlContent.match(/<image[^>]+(?:xlink:href|href)=["']([^"']+)["']/i);
+
+        if (match && match[1]) {
+          const imgSrc = match[1];
+          const cleanSrc = imgSrc.replace(/^\.\.\//, '').replace(/^\.\//, '');
+          const candidates = [
+            imgSrc,
+            cleanSrc,
+            `OEBPS/${cleanSrc}`,
+            `EPUB/${cleanSrc}`,
+            `OPS/${cleanSrc}`
+          ];
+
+          for (const cand of candidates) {
+            try {
+              if (book.archive?.zip?.file(cand)) {
+                const fileInZip = book.archive.zip.file(cand);
+                const b64 = await fileInZip.async('base64');
+                const ext = cand.split('.').pop()?.toLowerCase() || 'jpeg';
+                const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+                return `data:${mime};base64,${b64}`;
+              }
+              const url = await book.archive?.createUrl(cand, { base64: true });
+              if (url && url.length > 500) return url;
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 4. Varre diretamente todos os arquivos no ZIP do EPUB
+  try {
+    const zipFiles = book.archive?.zip?.files;
+    if (zipFiles) {
+      const imageKeys = Object.keys(zipFiles).filter((k) =>
+        /\.(jpe?g|png|webp)$/i.test(k)
+      );
+
+      // Prioridade 1: nome tem cover ou capa
+      let bestKey = imageKeys.find((k) => /(?:^|\/|_|-)(?:cover|capa)(?:_|-|\.|$)/i.test(k));
+      if (!bestKey) {
+        bestKey = imageKeys.find((k) => /cover|capa/i.test(k));
+      }
+      // Prioridade 2: primeira imagem do zip (se o EPUB tiver apenas 1 imagem grande no início)
+      if (!bestKey && imageKeys.length > 0) {
+        bestKey = imageKeys[0];
+      }
+
+      if (bestKey) {
+        const fileInZip = zipFiles[bestKey];
+        const b64 = await fileInZip.async('base64');
+        const ext = bestKey.split('.').pop()?.toLowerCase() || 'jpeg';
+        const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        return `data:${mime};base64,${b64}`;
+      }
+    }
+  } catch {}
+
+  return undefined;
+}
+
 export async function parseEpubFile(data: ArrayBuffer): Promise<EpubMetadata> {
   let title = 'Livro EPUB';
   let author = 'Autor Desconhecido';
@@ -98,20 +220,13 @@ export async function parseEpubFile(data: ArrayBuffer): Promise<EpubMetadata> {
     if (metadata.creator) author = metadata.creator.trim();
     if (metadata.description) description = metadata.description;
 
-    try {
-      const rawCoverUrl = await book.coverUrl();
-      if (rawCoverUrl) {
-        // Convert blob: url to persistent base64 data url
-        coverDataUrl = await urlToBase64(rawCoverUrl);
-      }
-    } catch (coverErr) {
-      console.warn('Capa não encontrada ou inacessível no EPUB:', coverErr);
-    }
+    // Extrai a capa usando a busca exaustiva
+    coverDataUrl = await extractCoverFromEpub(book);
   } catch (err) {
     console.warn('Erro ao processar EPUB:', err);
   }
 
-  // If no cover was extracted, generate a typographic cover
+  // Se nenhuma capa foi extraída do arquivo, gera a capa tipográfica
   if (!coverDataUrl) {
     coverDataUrl = generateCoverDataUrl(title, author);
   }

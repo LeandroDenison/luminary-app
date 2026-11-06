@@ -212,6 +212,35 @@ export const DriveApi = {
     return res.arrayBuffer();
   },
 
+  /**
+   * Baixa a miniatura em alta resolução gerada pelo Google Drive para o arquivo.
+   * Extremamente leve (~20KB), dispensando o download do livro inteiro.
+   */
+  async getThumbnailDataUrl(fileId: string): Promise<string | null> {
+    try {
+      const metaRes = await driveFetch(
+        `${API}/files/${fileId}?fields=thumbnailLink,hasThumbnail&supportsAllDrives=true`
+      );
+      const meta = await metaRes.json();
+      if (!meta.thumbnailLink) return null;
+
+      // Troca a escala padrão (=s220) por alta resolução (=s600)
+      const highResUrl = meta.thumbnailLink.replace(/=s\d+/, '=s600');
+      const imgRes = await driveFetch(highResUrl);
+      if (!imgRes.ok) return null;
+
+      const blob = await imgRes.blob();
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  },
+
   async downloadText(fileId: string): Promise<string> {
     const res = await driveFetch(`${API}/files/${fileId}?alt=media&supportsAllDrives=true`);
     return res.text();
