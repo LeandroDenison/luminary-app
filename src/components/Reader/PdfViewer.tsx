@@ -19,6 +19,7 @@ interface PdfViewerProps {
   marginSize?: ReaderMarginSize;
   onPageChange: (newPage: number, totalPages: number) => void;
   onToggleControls: () => void;
+  onTextSelected?: (text: string) => void;
   registerNavigation?: (nav: { next: () => void; prev: () => void; goTo: (target: string | number) => void }) => void;
   onLoaded?: (toc: any[]) => void;
 }
@@ -35,6 +36,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   marginSize = 'medium',
   onPageChange,
   onToggleControls,
+  onTextSelected,
   registerNavigation,
   onLoaded
 }) => {
@@ -45,6 +47,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const singleCanvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
+
+  // Inform parent when text selection changes
+  useEffect(() => {
+    if (!onTextSelected) return;
+    const handleSel = () => {
+      const sel = window.getSelection();
+      const txt = sel ? sel.toString().trim() : '';
+      if (txt.length > 0 && txt.length < 3000) {
+        onTextSelected(txt);
+      }
+    };
+    document.addEventListener('selectionchange', handleSel);
+    return () => document.removeEventListener('selectionchange', handleSel);
+  }, [onTextSelected]);
 
   // Register navigation
   useEffect(() => {

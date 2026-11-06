@@ -14,6 +14,7 @@ interface EpubViewerProps {
   marginSize?: ReaderMarginSize;
   onLocationChange: (cfi: string, progress: number) => void;
   onToggleControls: () => void;
+  onTextSelected?: (text: string) => void;
   onLoaded?: (toc: any[]) => void;
   registerNavigation?: (nav: { next: () => void; prev: () => void; goTo: (target: string | number) => void }) => void;
 }
@@ -78,6 +79,7 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
   marginSize = 'medium',
   onLocationChange,
   onToggleControls,
+  onTextSelected,
   onLoaded,
   registerNavigation
 }) => {
@@ -169,7 +171,14 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
             * {
               -webkit-tap-highlight-color: transparent;
             }
+            ::selection {
+              background-color: rgba(245, 158, 11, 0.35);
+              color: inherit;
+            }
             body {
+              user-select: text !important;
+              -webkit-user-select: text !important;
+              -webkit-touch-callout: default !important;
               font-family: ${getFontFamilyCSS(fontFamily)} !important;
               line-height: ${lineHeight} !important;
               margin: 0 !important;
@@ -179,7 +188,9 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
               word-break: break-word;
               overflow-wrap: break-word;
             }
-            p, span, div, li {
+            p, span, div, li, h1, h2, h3, h4, h5, h6 {
+              user-select: text !important;
+              -webkit-user-select: text !important;
               font-family: inherit !important;
               line-height: inherit !important;
             }
@@ -189,8 +200,24 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
             }
           `;
 
+          // Selection change listener inside iframe
+          doc.addEventListener('selectionchange', () => {
+            const win = contents.window || doc.defaultView;
+            const sel = win ? win.getSelection() : null;
+            const text = sel ? sel.toString().trim() : '';
+            if (text.length > 0 && text.length < 3000) {
+              onTextSelected?.(text);
+            }
+          });
+
           // Click handler inside iframe
           doc.addEventListener('click', (e: MouseEvent) => {
+            const win = contents.window || doc.defaultView;
+            const sel = win ? win.getSelection() : null;
+            if (sel && sel.toString().trim().length > 0) {
+              return;
+            }
+
             const width = doc.documentElement.clientWidth || window.innerWidth;
             const x = e.clientX;
 
@@ -217,10 +244,15 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
 
           doc.addEventListener('touchend', (e: TouchEvent) => {
             if (readingMode !== 'paginated') return;
+            const win = contents.window || doc.defaultView;
+            const sel = win ? win.getSelection() : null;
+            if (sel && sel.toString().trim().length > 0) {
+              return;
+            }
             const diffX = e.changedTouches[0].clientX - touchStartX;
             const diffY = e.changedTouches[0].clientY - touchStartY;
 
-            if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+            if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
               if (diffX > 0) {
                 rendition.prev();
               } else {
@@ -228,6 +260,16 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
               }
             }
           }, { passive: true });
+        });
+
+        // Rendition selection event
+        rendition.on('selected', (_cfiRange: string, contents: any) => {
+          const win = contents?.window || (contents?.document && contents.document.defaultView);
+          const sel = win ? win.getSelection() : null;
+          const text = sel ? sel.toString().trim() : '';
+          if (text.length > 0 && text.length < 3000) {
+            onTextSelected?.(text);
+          }
         });
 
         // Display at saved location or start
@@ -340,7 +382,14 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
             * {
               -webkit-tap-highlight-color: transparent;
             }
+            ::selection {
+              background-color: rgba(245, 158, 11, 0.35);
+              color: inherit;
+            }
             body {
+              user-select: text !important;
+              -webkit-user-select: text !important;
+              -webkit-touch-callout: default !important;
               font-family: ${getFontFamilyCSS(currentFont)} !important;
               line-height: ${currentLineHeight} !important;
               margin: 0 !important;
@@ -350,7 +399,9 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({
               word-break: break-word;
               overflow-wrap: break-word;
             }
-            p, span, div, li {
+            p, span, div, li, h1, h2, h3, h4, h5, h6 {
+              user-select: text !important;
+              -webkit-user-select: text !important;
               font-family: inherit !important;
               line-height: inherit !important;
             }

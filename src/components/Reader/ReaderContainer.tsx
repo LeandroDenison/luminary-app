@@ -477,6 +477,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
               marginSize={marginSize}
               onPageChange={handlePdfPageChange}
               onToggleControls={() => setShowControls((prev) => !prev)}
+              onTextSelected={(text) => setSelectedText(text)}
               onLoaded={(toc) => setTocItems(toc)}
               registerNavigation={(nav) => {
                 navRef.current = nav;
@@ -494,6 +495,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
               marginSize={marginSize}
               onLocationChange={handleEpubLocationChange}
               onToggleControls={() => setShowControls((prev) => !prev)}
+              onTextSelected={(text) => setSelectedText(text)}
               onLoaded={(toc) => setTocItems(toc)}
               registerNavigation={(nav) => {
                 navRef.current = nav;
