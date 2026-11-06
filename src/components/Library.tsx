@@ -342,12 +342,8 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
       >
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            {/* Logo do App (toque para rever a animação de entrada L-Livro) */}
-            <div
-              onClick={() => (onReplaySplash ? onReplaySplash() : setShowIconStudio(true))}
-              className="cursor-pointer hover:scale-105 active:scale-95 transition-transform shrink-0"
-              title="Toque para ver a animação de abertura Luminary"
-            >
+            {/* Logo Estático do App */}
+            <div className="shrink-0">
               <LuminaryIcon variant={activeIconVariant} size={36} />
             </div>
             <div className="min-w-0">

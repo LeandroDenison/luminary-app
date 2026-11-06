@@ -136,7 +136,6 @@ export const App: React.FC = () => {
           books={books}
           onOpenBook={handleOpenBook}
           onRefreshBooks={loadBooks}
-          onReplaySplash={() => setViewState('splash')}
         />
       )}
 
