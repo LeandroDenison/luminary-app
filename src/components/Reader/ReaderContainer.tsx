@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Settings, List, Bookmark as BookmarkIcon, Scroll, BookOpen, ChevronLeft, ChevronRight, Quote, Sun, Sparkles, FileText } from 'lucide-react';
+import { ArrowLeft, Settings, List, Bookmark as BookmarkIcon, Scroll, BookOpen, ChevronLeft, ChevronRight, Quote, Sun, Sparkles, FileText, Copy, Check, X } from 'lucide-react';
 import { PdfViewer } from './PdfViewer';
 import { EpubViewer } from './EpubViewer';
 import { ReaderSettingsModal } from './ReaderSettingsModal';
@@ -42,6 +42,11 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
   const [showQuoteModal, setShowQuoteModal] = useState<boolean>(false);
   const [tocItems, setTocItems] = useState<any[]>([]);
 
+  // Selection & Copy Floating Toolbar state
+  const [selectedText, setSelectedText] = useState<string>('');
+  const [quoteSelectionText, setQuoteSelectionText] = useState<string>('');
+  const [hasCopiedToast, setHasCopiedToast] = useState<boolean>(false);
+
   // Brightness control state
   const [brightness, setBrightness] = useState<number>(() => {
     const saved = localStorage.getItem('luminary_reader_brightness');
@@ -69,6 +74,48 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
       ScreenHelper.showStatusBar();
     };
   }, []);
+
+  // Detect text selection changes to offer seamless copy & quote creation
+  useEffect(() => {
+    const handleSelection = () => {
+      const sel = window.getSelection();
+      const txt = sel ? sel.toString().trim() : '';
+      if (txt.length > 0 && txt.length < 3000) {
+        setSelectedText(txt);
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelection);
+    return () => document.removeEventListener('selectionchange', handleSelection);
+  }, []);
+
+  // Copy selected text directly to clipboard
+  const handleCopySelectedText = async () => {
+    if (!selectedText) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(selectedText);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = selectedText;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setHasCopiedToast(true);
+      setTimeout(() => setHasCopiedToast(false), 2000);
+    } catch (err) {
+      console.warn('Erro ao copiar texto:', err);
+    }
+  };
+
+  const handleOpenQuoteFromSelection = () => {
+    setQuoteSelectionText(selectedText);
+    setShowQuoteModal(true);
+  };
 
   // Keyboard navigation
   useEffect(() => {
@@ -285,10 +332,10 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
   };
 
   return (
-    <div className={`relative w-full h-full flex flex-col select-none overflow-hidden ${getContainerBg()}`}>
+    <div className={`relative w-full h-full flex flex-col overflow-hidden ${getContainerBg()}`}>
       {/* Top Floating Controls Bar */}
       <div
-        className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ease-in-out ${
+        className={`absolute top-0 left-0 right-0 z-50 transition-all duration-300 ease-in-out select-none ${
           showControls ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
         }`}
       >
@@ -301,7 +348,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
           <div className="flex items-center gap-1.5 overflow-hidden mr-2 min-w-0">
             <button
               onClick={onBack}
-              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-200 hover:text-white transition-colors touch-manipulation shrink-0"
+              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-200 hover:text-white transition-colors touch-manipulation shrink-0 cursor-pointer"
               title="Voltar à Biblioteca"
               aria-label="Voltar à Biblioteca"
             >
@@ -318,7 +365,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {book.format === 'pdf' && (
               <button
                 onClick={handleTogglePdfDisplayMode}
-                className={`min-h-[42px] px-2.5 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-all touch-manipulation ${
+                className={`min-h-[42px] px-2.5 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-all touch-manipulation cursor-pointer ${
                   pdfDisplayMode === 'reflow'
                     ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-xs'
                     : 'bg-slate-800/80 text-slate-300 border-slate-700'
@@ -343,7 +390,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {/* Quick toggle mode: Scroll vs Paginated */}
             <button
               onClick={() => handleModeChange(readingMode === 'paginated' ? 'scroll' : 'paginated')}
-              className={`min-h-[42px] px-2.5 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-all touch-manipulation ${
+              className={`min-h-[42px] px-2.5 py-1.5 rounded-xl border text-xs flex items-center gap-1.5 transition-all touch-manipulation cursor-pointer ${
                 readingMode === 'scroll'
                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                   : 'bg-slate-800/80 text-slate-300 border-slate-700'
@@ -359,7 +406,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {/* TOC for both PDF and EPUB */}
             <button
               onClick={() => setShowToc(true)}
-              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-white transition-colors touch-manipulation"
+              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-white transition-colors touch-manipulation cursor-pointer"
               title="Capítulos / Índice"
             >
               <List size={18} />
@@ -368,7 +415,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {/* Quick Bookmark */}
             <button
               onClick={handleAddBookmark}
-              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors touch-manipulation"
+              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors touch-manipulation cursor-pointer"
               title="Adicionar Marcador"
             >
               <BookmarkIcon size={18} />
@@ -376,8 +423,11 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
 
             {/* Criar Card de Citação */}
             <button
-              onClick={() => setShowQuoteModal(true)}
-              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors touch-manipulation"
+              onClick={() => {
+                setQuoteSelectionText(selectedText);
+                setShowQuoteModal(true);
+              }}
+              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors touch-manipulation cursor-pointer"
               title="Criar Card de Citação"
             >
               <Quote size={18} />
@@ -386,7 +436,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             {/* Settings */}
             <button
               onClick={() => setShowSettings(true)}
-              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-white transition-colors touch-manipulation"
+              className="min-w-[42px] min-h-[42px] flex items-center justify-center p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 text-slate-300 hover:text-white transition-colors touch-manipulation cursor-pointer"
               title="Configurações de Leitura"
             >
               <Settings size={18} />
@@ -396,7 +446,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
       </div>
 
       {/* Main Reader Content Area */}
-      <div className="flex-1 w-full h-full relative overflow-hidden">
+      <div className="flex-1 w-full h-full relative overflow-hidden select-auto">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
             <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -502,11 +552,43 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             </button>
           </>
         )}
+
+        {/* Floating Selection Action Toolbar quando o usuário seleciona qualquer texto */}
+        {selectedText && (
+          <div className="fixed bottom-16 sm:bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-slate-900/95 backdrop-blur-md border border-amber-500/40 text-amber-200 px-3.5 py-2 rounded-2xl shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <button
+              onClick={handleCopySelectedText}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 active:bg-amber-500/40 text-amber-300 font-semibold text-xs rounded-xl border border-amber-500/30 transition-all cursor-pointer"
+              title="Copiar texto selecionado"
+            >
+              {hasCopiedToast ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+              <span>{hasCopiedToast ? 'Copiado!' : 'Copiar'}</span>
+            </button>
+            <button
+              onClick={handleOpenQuoteFromSelection}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl border border-slate-700 transition-all cursor-pointer"
+              title="Criar Card de Citação com este trecho"
+            >
+              <Quote size={14} className="text-amber-400" />
+              <span>Criar Card</span>
+            </button>
+            <button
+              onClick={() => {
+                window.getSelection()?.removeAllRanges();
+                setSelectedText('');
+              }}
+              className="p-1 text-slate-400 hover:text-slate-200 rounded-lg cursor-pointer"
+              title="Fechar seleção"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Bottom Floating Controls Bar */}
       <div
-        className={`absolute bottom-0 left-0 right-0 z-30 transition-all duration-300 ease-in-out ${
+        className={`absolute bottom-0 left-0 right-0 z-30 transition-all duration-300 ease-in-out select-none ${
           showControls ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'
         }`}
       >
@@ -580,6 +662,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
         bookTitle={book.title}
         bookAuthor={book.author}
         bookCoverUrl={book.coverUrl}
+        initialQuote={quoteSelectionText}
       />
 
       {/* Table of Contents Modal */}

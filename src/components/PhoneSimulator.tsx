@@ -135,7 +135,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
             </div>
 
             {/* App Screen Container */}
-            <div className="flex-1 w-full h-full relative overflow-hidden bg-slate-950">
+            <div className="flex-1 w-full h-full relative overflow-hidden bg-slate-950 select-auto">
               {children}
             </div>
 
@@ -146,7 +146,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
           </div>
         ) : (
           /* Full Screen View */
-          <div className="w-full h-full rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
+          <div className="w-full h-full rounded-2xl overflow-hidden border border-slate-800 shadow-2xl select-auto">
             {children}
           </div>
         )}

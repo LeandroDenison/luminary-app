@@ -170,10 +170,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (readingMode !== 'paginated') return;
+
+    // Se houver seleção de texto ativa pelo toque, não virar a folha
+    const selection = window.getSelection();
+    if (selection && selection.toString().trim().length > 0) return;
+
     const diffX = e.changedTouches[0].clientX - touchStartXRef.current;
     const diffY = e.changedTouches[0].clientY - touchStartYRef.current;
 
-    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+    if (Math.abs(diffX) > 60 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
       if (diffX > 0) {
         if (currentPage > 1) onPageChange(currentPage - 1, numPages);
       } else {
@@ -468,11 +473,13 @@ const PdfReflowPageItem: React.FC<PdfReflowPageItemProps> = ({
       ) : (
         /* Conteúdo Reflow Estruturado */
         <div
-          className="w-full flex flex-col gap-4 text-justify"
+          className="w-full flex flex-col gap-4 text-justify reflow-text-container selectable-text select-text"
           style={{
             fontFamily: fontCss,
             fontSize: `${fontSize}px`,
-            lineHeight: lineHeight
+            lineHeight: lineHeight,
+            userSelect: 'text',
+            WebkitUserSelect: 'text'
           }}
         >
           {reflowData?.blocks.map((block, idx) => {
@@ -480,10 +487,12 @@ const PdfReflowPageItem: React.FC<PdfReflowPageItemProps> = ({
               return (
                 <h3
                   key={idx}
-                  className="font-bold tracking-tight text-left mt-3 mb-1"
+                  className="font-bold tracking-tight text-left mt-3 mb-1 selectable-text select-text"
                   style={{
                     fontSize: `${Math.round(fontSize * (block.level === 1 ? 1.35 : 1.18))}px`,
-                    lineHeight: 1.3
+                    lineHeight: 1.3,
+                    userSelect: 'text',
+                    WebkitUserSelect: 'text'
                   }}
                 >
                   {block.text}
@@ -493,11 +502,13 @@ const PdfReflowPageItem: React.FC<PdfReflowPageItemProps> = ({
             return (
               <p
                 key={idx}
-                className="transition-colors leading-relaxed tracking-normal"
+                className="transition-colors leading-relaxed tracking-normal selectable-text select-text cursor-text"
                 style={{
                   textIndent: '1.25em',
                   wordBreak: 'break-word',
-                  overflowWrap: 'break-word'
+                  overflowWrap: 'break-word',
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text'
                 }}
               >
                 {block.text}
