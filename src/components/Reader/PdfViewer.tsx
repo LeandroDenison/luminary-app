@@ -357,7 +357,7 @@ const PdfReflowPageItem: React.FC<PdfReflowPageItemProps> = ({
     };
   }, [pdfDoc, pageNum]);
 
-  // Observer for scroll mode
+  // Observer for scroll mode - triggers only when page is in actual reading focal area
   useEffect(() => {
     if (!onVisible || !itemRef.current) return;
     const observer = new IntersectionObserver(
@@ -368,7 +368,7 @@ const PdfReflowPageItem: React.FC<PdfReflowPageItemProps> = ({
           }
         });
       },
-      { rootMargin: '100px' }
+      { rootMargin: '-10% 0px -65% 0px' }
     );
     observer.observe(itemRef.current);
     return () => observer.disconnect();
@@ -536,14 +536,23 @@ const InfinitePdfReflowScroll: React.FC<InfinitePdfReflowScrollProps> = ({
   initialPage,
   onPageVisible
 }) => {
+  const hasScrolledInitialRef = useRef(false);
+
   useEffect(() => {
+    if (hasScrolledInitialRef.current) return;
     if (initialPage > 1) {
-      const el = document.getElementById(`pdf-reflow-page-${initialPage}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`pdf-reflow-page-${initialPage}`);
+        if (el) {
+          hasScrolledInitialRef.current = true;
+          el.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }
+      }, 80);
+      return () => clearTimeout(timer);
+    } else {
+      hasScrolledInitialRef.current = true;
     }
-  }, [initialPage]);
+  }, []); // Executa apenas no mount inicial para evitar auto-scroll cascata
 
   return (
     <div
@@ -591,15 +600,23 @@ const InfinitePdfScroll: React.FC<InfiniteScrollProps> = ({
   onPageVisible
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const hasScrolledInitialRef = useRef(false);
 
   useEffect(() => {
+    if (hasScrolledInitialRef.current) return;
     if (initialPage > 1) {
-      const el = document.getElementById(`pdf-page-${initialPage}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`pdf-page-${initialPage}`);
+        if (el) {
+          hasScrolledInitialRef.current = true;
+          el.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }
+      }, 80);
+      return () => clearTimeout(timer);
+    } else {
+      hasScrolledInitialRef.current = true;
     }
-  }, [initialPage]);
+  }, []); // Executa apenas no mount inicial para evitar auto-scroll cascata
 
   return (
     <div
@@ -633,25 +650,39 @@ const PdfPageItem: React.FC<{
   const [rendered, setRendered] = useState(false);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
+    if (!itemRef.current) return;
+
+    // Observer 1: Pré-renderização antecipada da página
+    const renderObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !rendered && pdfDoc && canvasRef.current) {
+            renderPage();
+          }
+        });
+      },
+      { rootMargin: '450px' }
+    );
+    renderObserver.observe(itemRef.current);
+
+    // Observer 2: Atualização da página ativa de leitura SOMENTE quando visível na zona focal
+    const visibleObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             onVisible();
-            if (!rendered && pdfDoc && canvasRef.current) {
-              renderPage();
-            }
           }
         });
       },
-      { rootMargin: '300px' }
+      { rootMargin: '-10% 0px -65% 0px' }
     );
+    visibleObserver.observe(itemRef.current);
 
-    if (itemRef.current) {
-      observer.observe(itemRef.current);
-    }
-    return () => observer.disconnect();
-  }, [pdfDoc, rendered]);
+    return () => {
+      renderObserver.disconnect();
+      visibleObserver.disconnect();
+    };
+  }, [pdfDoc, rendered, onVisible]);
 
   const renderPage = async () => {
     if (!pdfDoc || !canvasRef.current) return;
