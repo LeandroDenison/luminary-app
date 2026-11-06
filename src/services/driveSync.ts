@@ -3,7 +3,7 @@ import { GoogleAuth } from './googleAuth';
 import { StorageService } from './storage';
 import { parsePdfFile } from './pdfHelper';
 import { parseEpubFile } from './epubHelper';
-import { cleanBookTitleAndAuthor, areBooksDuplicates } from '../utils/textCleaner';
+import { cleanBookTitleAndAuthor, areBooksDuplicates, isSuspiciousAuthor } from '../utils/textCleaner';
 import type { Book, BookFormat, DeletedEntry } from '../types';
 
 /**
@@ -81,12 +81,18 @@ export function extractMetadataFromFolderPath(folderPath: string[]): {
   if (meaningful.length === 0) return {};
 
   if (meaningful.length === 1) {
-    // 1 pasta: pode ser autor ou série (ex: "Stephen King" ou "Harry Potter")
+    // 1 pasta: avalia se é nome de série conhecida (ex: "Cinquenta Tons", "Shadowhunters") ou autor
+    if (isSuspiciousAuthor(meaningful[0])) {
+      return { series: meaningful[0] };
+    }
     return { author: meaningful[0] };
   }
 
-  // 2 ou mais pastas: ex: ["Stephen King", "A Torre Negra"] ou ["J.K. Rowling", "Harry Potter"]
-  // A primeira pasta é o Autor, e as seguintes são Série / Coleção
+  // 2 ou mais pastas: ex: ["Stephen King", "A Torre Negra"] ou ["Cinquenta Tons", "E L James"]
+  if (isSuspiciousAuthor(meaningful[0])) {
+    return { series: meaningful[0], author: meaningful[1] };
+  }
+
   const author = meaningful[0];
   const series = meaningful.slice(1).join(' - ');
   return { author, series };

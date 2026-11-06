@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.24` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.25` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,14 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.24)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.25)
 
 ### 📖 Leitor & Usabilidade
+0. **Validação Cruzada de Capas, Autores Reais e Limpeza de Séries Sem Hífen (v1.0.25):**
+   - **Correção de Autores Falsos/Pastas:** Algoritmo [`isSuspiciousAuthor`](file:///c:/Users/leand/OneDrive%20-%20HAPVIDA%20ASSIST%C3%8ANCIA%20M%C3%89DICA%20LTDA/%C3%81rea%20de%20Trabalho/luminary-app/src/utils/textCleaner.ts) detecta quando o autor salvo é na verdade o nome de uma saga/pasta (ex: *"Cinquenta Tons"*, *"Shadowhunters"*) ou o título do livro (ex: *"Cujo"*).
+   - **Verificação com o Catálogo da Capa e Web:** A partir do título oficial ou da capa baixada, cruza os dados com o catálogo e substitui autores falsos pelos autores reais (*"E L James"*, *"Cassandra Clare"*, *"Stephen King"*), migrando o nome da saga para o campo `series`.
+   - **Remoção de Prefixos `#1 Grey`, `#2 Mais Escuro`:** Regex aprimorada com separador opcional para remover `#1`, `#2`, `02` mesmo sem hífen, extraindo o volume para a badge e deixando o título limpo.
+   - **Inspeção de Metadados EPUB Locais:** Ao enriquecer um livro baixado, inspeciona o manifesto interno do EPUB para recuperar o `dc:creator` e capa original de editora.
 0. **Busca na Web de Metadados Incompletos, Higienização de Séries & Filtros Avançados (v1.0.24):**
    - **Busca de Metadados na Web:** Varredura em segundo plano e sob demanda via Apple Books / Open Library para preencher autores em livros onde o arquivo veio sem autor ("Autor desconhecido"), capas em alta resolução e sinopses completas.
    - **Higienização de Séries & Volumes:** Remove prefixos ruidosos como `"#2 - "`, `"02 - "` ou `"Vol. 2 - "` do título do livro, extraindo o volume para uma badge destacada na capa (`Vol. 2`) e a série para uma tag elegante sobre o título (`A Torre Negra · #2`), seguindo o padrão de referências consagradas como Kindle, Apple Books e Goodreads.

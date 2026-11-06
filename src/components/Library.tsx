@@ -27,7 +27,7 @@ import { LiveUpdater, CURRENT_APP_VERSION, type LiveUpdateStatus } from '../serv
 import { CoverLoader } from '../services/coverLoader';
 import { parsePdfFile } from '../services/pdfHelper';
 import { parseEpubFile } from '../services/epubHelper';
-import { matchesBookSearch, cleanBookTitleAndAuthor, normalizeSearchText } from '../utils/textCleaner';
+import { matchesBookSearch, cleanBookTitleAndAuthor, normalizeSearchText, isSuspiciousAuthor } from '../utils/textCleaner';
 import type { Book, BookFormat } from '../types';
 
 interface LibraryProps {
@@ -145,11 +145,11 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const archivedCount = books.filter((b) => b.isArchived).length;
   const activeBooks = useMemo(() => books.filter((b) => !b.isArchived), [books]);
 
-  // Lista dinâmica de autores com contagem de livros
+  // Lista dinâmica de autores com contagem de livros (exclui termos que são séries ou títulos)
   const authorCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const b of activeBooks) {
-      if (b.author && !/desconhecido/i.test(b.author)) {
+      if (b.author && !/desconhecido/i.test(b.author) && !isSuspiciousAuthor(b.author, b.title)) {
         counts.set(b.author, (counts.get(b.author) || 0) + 1);
       }
     }
