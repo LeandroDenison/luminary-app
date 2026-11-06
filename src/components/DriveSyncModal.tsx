@@ -208,7 +208,7 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({ isOpen, onClose,
               <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-800 text-xs flex items-start gap-2">
                 <FolderOpen size={16} className="text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-slate-200 font-medium">Pasta "Luminary Leitor"</p>
+                  <p className="text-slate-200 font-medium">Pasta &quot;{folder.rootName || 'Luminary Leitor'}&quot;</p>
                   <p className="text-slate-400">
                     {folder.ownedByMe ? 'No seu Drive (você é o dono)' : `Compartilhada por ${folder.ownerEmail || 'outra conta'}`}
                   </p>

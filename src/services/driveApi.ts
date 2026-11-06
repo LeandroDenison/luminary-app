@@ -4,6 +4,7 @@ const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 
 export const ROOT_FOLDER_NAME = 'Luminary Leitor';
+export const ROOT_FOLDER_NAME_ORGANIZED = 'Luminary Leitor - Organizado';
 export const BOOKS_FOLDER_NAME = 'livros';
 export const LIBRARY_FILE_NAME = 'biblioteca.json';
 
@@ -97,9 +98,16 @@ export const DriveApi = {
     return files;
   },
 
-  /** Lists folders named "Luminary Leitor" (own folders + folders shared with me) */
+  /** Lists folders named "Luminary Leitor - Organizado" or "Luminary Leitor" (prioritizing the organized folder) */
   async findRootFolders(): Promise<DriveFile[]> {
-    return this.list(`name = '${escapeQuery(ROOT_FOLDER_NAME)}' and mimeType = '${FOLDER_MIME}' and trashed = false`);
+    const folders = await this.list(
+      `(name = '${escapeQuery(ROOT_FOLDER_NAME_ORGANIZED)}' or name = '${escapeQuery(ROOT_FOLDER_NAME)}') and mimeType = '${FOLDER_MIME}' and trashed = false`
+    );
+    return folders.sort((a, b) => {
+      const aOrg = a.name.includes('Organizado') ? 1 : 0;
+      const bOrg = b.name.includes('Organizado') ? 1 : 0;
+      return bOrg - aOrg;
+    });
   },
 
   async findChild(parentId: string, name: string, mimeType?: string): Promise<DriveFile | null> {
@@ -187,7 +195,10 @@ export const DriveApi = {
   },
 
   async ensureChildFolder(parentId: string, name: string): Promise<DriveFile> {
-    const existing = await this.findChild(parentId, name, FOLDER_MIME);
+    const children = await this.listChildren(parentId);
+    const existing = children.find(
+      (c) => c.mimeType === FOLDER_MIME && (c.name.toLowerCase() === name.toLowerCase() || /^(livros|books)$/i.test(c.name))
+    );
     return existing || this.createFolder(name, parentId);
   },
 

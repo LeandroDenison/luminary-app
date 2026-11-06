@@ -21,6 +21,7 @@ interface RemoteLibrary {
 
 export interface SyncFolderInfo {
   rootId: string;
+  rootName?: string;
   booksId: string;
   ownedByMe: boolean;
   ownerEmail?: string;
@@ -58,6 +59,7 @@ function safeFileName(title: string, format: BookFormat) {
 
 // Nomes de pastas genéricas que não representam autores ou séries
 const GENERIC_FOLDER_NAMES = new Set([
+  'luminary leitor - organizado',
   'luminary leitor',
   'luminary',
   'livros',
@@ -271,16 +273,25 @@ export const DriveSync = {
   },
 
   /**
-   * Finds the "Luminary Leitor" folder. Preference order:
-   *  1. Folder shared with me by someone else (girlfriend's account sees the owner's folder)
-   *  2. My own folder
-   *  3. Creates a new folder in my Drive
+   * Finds the "Luminary Leitor - Organizado" or "Luminary Leitor" folder. Preference order:
+   *  1. "Luminary Leitor - Organizado" (highest priority)
+   *  2. Folder shared with me by someone else (girlfriend's account sees the owner's folder)
+   *  3. My own folder
+   *  4. Creates a new folder in my Drive
    */
   async resolveFolder(): Promise<SyncFolderInfo> {
     const cached = this.getCachedFolder();
-    if (cached) {
+
+    const folders = await DriveApi.findRootFolders();
+    const organizedFolder = folders.find((f) => f.name.includes('Organizado'));
+
+    // Se uma pasta organizada existir no Drive, SEMPRE migra para ela automaticamente,
+    // mesmo se o dispositivo tiver a pasta antiga em cache!
+    if (organizedFolder && cached?.rootId !== organizedFolder.id) {
+      console.log(`[DriveSync] Nova pasta organizada detectada: "${organizedFolder.name}" (${organizedFolder.id}). Alternando...`);
+      localStorage.removeItem(FOLDER_CACHE_KEY);
+    } else if (cached) {
       try {
-        // Validate that the cached folder still exists
         await DriveApi.findChild(cached.rootId, BOOKS_FOLDER_NAME);
         return cached;
       } catch (err) {
@@ -289,10 +300,9 @@ export const DriveSync = {
       }
     }
 
-    const folders = await DriveApi.findRootFolders();
     const shared = folders.find((f) => f.ownedByMe === false);
     const own = folders.find((f) => f.ownedByMe !== false);
-    let root = shared || own;
+    let root = organizedFolder || shared || own;
     if (!root) {
       root = await DriveApi.createFolder(ROOT_FOLDER_NAME);
       root.ownedByMe = true;
@@ -301,6 +311,7 @@ export const DriveSync = {
     const booksFolder = await DriveApi.ensureChildFolder(root.id, BOOKS_FOLDER_NAME);
     const info: SyncFolderInfo = {
       rootId: root.id,
+      rootName: root.name,
       booksId: booksFolder.id,
       ownedByMe: root.ownedByMe !== false,
       ownerEmail: root.owners?.[0]?.emailAddress

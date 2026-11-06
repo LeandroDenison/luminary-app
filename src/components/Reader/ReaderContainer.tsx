@@ -9,6 +9,7 @@ import { StorageService } from '../../services/storage';
 import { DriveSync, enrichBookFromFile } from '../../services/driveSync';
 import { DriveAuthError } from '../../services/driveApi';
 import { ScreenHelper } from '../../services/screenHelper';
+import { Capacitor } from '@capacitor/core';
 import type { Book, ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize, PdfDisplayMode } from '../../types';
 
 interface ReaderContainerProps {
@@ -552,6 +553,18 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
             className="pointer-events-none fixed inset-0 z-40 bg-black transition-opacity duration-75"
             style={{ opacity: ((100 - brightness) / 100) * 0.8 }}
           />
+        )}
+
+        {/* Botão flutuante 'Voltar' exclusivo para ambiente Web Dev (evita ficar preso no livro no PC) */}
+        {!Capacitor.isNativePlatform() && (
+          <button
+            onClick={onBack}
+            className="fixed top-2 left-2 z-[60] bg-slate-900/90 hover:bg-slate-800 text-amber-300 hover:text-amber-200 border border-amber-500/40 px-2.5 py-1.5 rounded-xl shadow-xl backdrop-blur-md text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+            title="Voltar à Biblioteca (Web Dev)"
+          >
+            <ArrowLeft size={14} />
+            <span>Voltar</span>
+          </button>
         )}
 
         {/* Floating Prev/Next Side Indicators when controls are open and in paginated mode */}

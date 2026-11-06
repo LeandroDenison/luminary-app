@@ -8,7 +8,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-const version = process.argv[2] || '1.0.6';
+function getAppVersion() {
+  try {
+    const content = fs.readFileSync(path.join(rootDir, 'src/services/liveUpdater.ts'), 'utf8');
+    const match = content.match(/CURRENT_APP_VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (match) return match[1];
+  } catch {}
+  return '1.0.26';
+}
+
+const version = process.argv[2] || getAppVersion();
 const distDir = path.join(rootDir, 'dist');
 const deployDir = path.join(rootDir, 'deploy_pages');
 

@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Smartphone, Monitor, RotateCw, Wifi, BatteryCharging, DownloadCloud } from 'lucide-react';
+import { Smartphone, Monitor, RotateCw, Wifi, BatteryCharging, DownloadCloud, ArrowLeft, ChevronLeft, Circle, Square } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 
 interface PhoneSimulatorProps {
   children: React.ReactNode;
   onOpenApkGuide: () => void;
+  activeBook?: any;
+  onBackToLibrary?: () => void;
 }
 
-export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpenApkGuide }) => {
+export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpenApkGuide, activeBook, onBackToLibrary }) => {
   // Detecta se é o aplicativo nativo (APK) OU celular real
   const isRealMobile = Capacitor.isNativePlatform() || (typeof window !== 'undefined' && (
     window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -16,6 +18,30 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
   const [isPhoneFrame, setIsPhoneFrame] = useState(!isRealMobile);
   const [isLandscape, setIsLandscape] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
+  const [isImportingCatalog, setIsImportingCatalog] = useState(false);
+
+  const handleLoadLocalCatalog = async () => {
+    if (isImportingCatalog) return;
+    setIsImportingCatalog(true);
+    try {
+      const res = await fetch('/biblioteca.json');
+      if (!res.ok) throw new Error('biblioteca.json não encontrado');
+      const data = await res.json();
+      if (data.books) {
+        const { StorageService } = await import('../services/storage');
+        const books = Object.values(data.books) as any[];
+        for (const b of books) {
+          await StorageService.saveBook(b, undefined, { preserveTimestamp: true });
+        }
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar catálogo local:', err);
+      alert('Não foi possível carregar o arquivo biblioteca.json');
+    } finally {
+      setIsImportingCatalog(false);
+    }
+  };
 
   useEffect(() => {
     if (isRealMobile) return;
@@ -80,6 +106,17 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
         </div>
 
         <div className="flex items-center gap-2">
+          {activeBook && onBackToLibrary && (
+            <button
+              onClick={onBackToLibrary}
+              className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs shadow-md transition-all active:scale-95 cursor-pointer animate-in fade-in"
+              title="Voltar para a Estante (Modo Web Dev)"
+            >
+              <ArrowLeft size={15} />
+              <span>Voltar à Estante</span>
+            </button>
+          )}
+
           {isPhoneFrame && (
             <button
               onClick={() => setIsLandscape((prev) => !prev)}
@@ -90,6 +127,15 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
               <span className="hidden md:inline">{isLandscape ? 'Retrato' : 'Paisagem'}</span>
             </button>
           )}
+
+          <button
+            onClick={handleLoadLocalCatalog}
+            disabled={isImportingCatalog}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-medium px-3 py-1 rounded-lg text-xs border border-amber-500/30 shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+            title="Importar os 406 livros do catálogo organizado para testar no navegador"
+          >
+            <span>{isImportingCatalog ? 'Carregando...' : 'Carregar Catálogo (406 Livros)'}</span>
+          </button>
 
           <button
             onClick={onOpenApkGuide}
@@ -139,9 +185,31 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ children, onOpen
               {children}
             </div>
 
-            {/* Bottom Home Indicator Bar (Android / iOS) */}
-            <div className="h-4 bg-slate-950 flex items-center justify-center shrink-0">
-              <div className="w-32 h-1 bg-slate-700/80 rounded-full" />
+            {/* Bottom Android Navigation Bar */}
+            <div className="h-6 bg-slate-950 flex items-center justify-around px-8 shrink-0 border-t border-slate-900/60">
+              {activeBook && onBackToLibrary ? (
+                <>
+                  <button
+                    onClick={onBackToLibrary}
+                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+                    title="Voltar à Estante"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <button
+                    onClick={onBackToLibrary}
+                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors cursor-pointer"
+                    title="Tela Inicial"
+                  >
+                    <Circle size={12} />
+                  </button>
+                  <div className="p-1 text-slate-600">
+                    <Square size={12} />
+                  </div>
+                </>
+              ) : (
+                <div className="w-28 h-1 bg-slate-700/80 rounded-full" />
+              )}
             </div>
           </div>
         ) : (

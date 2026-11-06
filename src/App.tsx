@@ -95,7 +95,11 @@ export const App: React.FC = () => {
   }, [loadBooks]);
 
   return (
-    <PhoneSimulator onOpenApkGuide={() => setShowApkGuide(true)}>
+    <PhoneSimulator
+      onOpenApkGuide={() => setShowApkGuide(true)}
+      activeBook={activeBook}
+      onBackToLibrary={handleManualBack}
+    >
       {loading ? (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-slate-300 gap-3">
           <div className="w-9 h-9 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />

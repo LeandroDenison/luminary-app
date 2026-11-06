@@ -383,11 +383,10 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             {/* Free Books Button */}
             <button
               onClick={() => setShowCatalogModal(true)}
-              className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer"
-              title="Catálogo de Clássicos Grátis"
+              className="p-1.5 rounded-xl border bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30 transition-colors cursor-pointer shrink-0"
+              title="Catálogo de Livros Grátis"
             >
-              <Sparkles size={14} />
-              <span className="hidden sm:inline">Livros Grátis</span>
+              <Sparkles size={16} />
             </button>
 
             {/* Import Button */}
@@ -651,7 +650,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
               ) : null}
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
+            <div className="grid grid-cols-2 gap-3.5">
               {filteredBooks.map((book) => (
                 <div
                   key={book.id}
