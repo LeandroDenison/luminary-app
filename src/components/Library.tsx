@@ -35,12 +35,11 @@ interface LibraryProps {
   books: Book[];
   onOpenBook: (book: Book) => void;
   onRefreshBooks: () => void;
-  onReplaySplash?: () => void;
 }
 
 type FilterType = 'all' | 'reading' | 'completed' | 'pdf' | 'epub' | 'archived';
 
-export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks, onReplaySplash }) => {
+export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [sortBy, setSortBy] = useState<SortOption>('recent');
