@@ -19,14 +19,90 @@ export function normalizeSearchText(text: string): string {
     .trim();
 }
 
+export interface CleanedBookInfo {
+  title: string;
+  author: string;
+  series?: string;
+  volume?: string;
+}
+
+/**
+ * Extrai série e volume (ex: "#2 - O Cemitério", "Vol. 2 - As Duas Torres", "Harry Potter #2 - A Câmara Secreta")
+ * e remove o prefixo feio do título, deixando o título limpo e elegante como no Kindle e Apple Books.
+ */
+export function extractSeriesAndVolume(
+  rawTitle: string,
+  existingSeries?: string
+): { title: string; series?: string; volume?: string } {
+  let title = rawTitle.trim();
+  let series = existingSeries?.trim() || undefined;
+  let volume: string | undefined = undefined;
+
+  // 1. Padrão no final com parênteses/colchetes: (Série #2) ou [Série - Vol 2]
+  const bracketMatch = title.match(/[\(\[]([^\)\]]+?)(?:\s*[-–—,]?\s*|\s+)(?:#|vol(?:ume)?\.?|livro|bk\.?)\s*(\d+)[\)\]]$/i);
+  if (bracketMatch) {
+    if (!series) series = bracketMatch[1].trim();
+    volume = String(parseInt(bracketMatch[2], 10));
+    title = title.replace(bracketMatch[0], '').trim();
+  }
+
+  // 2. Padrão no final: (#2) ou (Vol. 2) ou [Vol 2]
+  const volEndMatch = title.match(/[\(\[](?:#|vol(?:ume)?\.?|livro)\s*(\d+)[\)\]]$/i);
+  if (volEndMatch) {
+    if (!volume) volume = String(parseInt(volEndMatch[1], 10));
+    title = title.replace(volEndMatch[0], '').trim();
+  }
+
+  // 3. Padrão no final com traço: - Vol. 2 ou - #2
+  const dashEndMatch = title.match(/\s*[-–—]\s*(?:#|vol(?:ume)?\.?|livro)\s*(\d+)$/i);
+  if (dashEndMatch) {
+    if (!volume) volume = String(parseInt(dashEndMatch[1], 10));
+    title = title.replace(dashEndMatch[0], '').trim();
+  }
+
+  // 4. Padrão: Série #2 - Título OU Série - Vol. 2 - Título
+  const seriesStartMatch = title.match(/^(.+?)\s*[-–—]?\s*(?:#|vol(?:ume)?\.?|livro)\s*(\d+)\s*[-–—:]\s*(.+)$/i);
+  if (seriesStartMatch) {
+    if (!series) series = seriesStartMatch[1].trim();
+    if (!volume) volume = String(parseInt(seriesStartMatch[2], 10));
+    title = seriesStartMatch[3].trim();
+  }
+
+  // 5. Padrão: #2 - Título OU #02 - Título
+  const hashPrefixMatch = title.match(/^#(\d+)\s*[-–—.:]\s*(.+)$/i);
+  if (hashPrefixMatch) {
+    if (!volume) volume = String(parseInt(hashPrefixMatch[1], 10));
+    title = hashPrefixMatch[2].trim();
+  }
+
+  // 6. Padrão: Vol. 2 - Título OU Volume 2 - Título OU Livro 2 - Título
+  const volPrefixMatch = title.match(/^(?:vol(?:ume)?\.?|livro|book)\s*#?\s*(\d+)\s*[-–—.:]\s*(.+)$/i);
+  if (volPrefixMatch) {
+    if (!volume) volume = String(parseInt(volPrefixMatch[1], 10));
+    title = volPrefixMatch[2].trim();
+  }
+
+  // 7. Padrão: 02 - Título OU 2 - Título (número no início com separador)
+  // Ignora anos como 1984, 2001, etc.
+  const numPrefixMatch = title.match(/^(\d{1,3})\s*[-–—.:]\s*(.+)$/);
+  if (numPrefixMatch && parseInt(numPrefixMatch[1], 10) < 500) {
+    if (!volume) volume = String(parseInt(numPrefixMatch[1], 10));
+    title = numPrefixMatch[2].trim();
+  }
+
+  return { title, series, volume };
+}
+
 /**
  * Limpa títulos removendo prefixos automáticos como "Cópia de", "Copia (1) de", extensões de arquivo,
- * e tenta extrair o Autor e Título caso o arquivo esteja nomeado como "Autor - Livro" ou "Livro - Autor".
+ * extrai número de volume/série para não poluir o nome e tenta extrair Autor e Título caso o arquivo
+ * esteja nomeado como "Autor - Livro".
  */
 export function cleanBookTitleAndAuthor(
   rawTitle: string,
-  currentAuthor?: string
-): { title: string; author: string } {
+  currentAuthor?: string,
+  currentSeries?: string
+): CleanedBookInfo {
   // 1. Remove extensão .pdf ou .epub caso presente
   let clean = rawTitle.replace(/\.(pdf|epub)$/i, '').trim();
 
@@ -49,9 +125,15 @@ export function cleanBookTitleAndAuthor(
     }
   }
 
+  // 5. Extrai Série e Volume (#2, Vol. 2, etc.) e higieniza o título
+  const seriesInfo = extractSeriesAndVolume(title, currentSeries);
+  title = seriesInfo.title;
+
   return {
     title: title || 'Livro sem título',
-    author: author || 'Autor desconhecido'
+    author: author || 'Autor desconhecido',
+    series: seriesInfo.series,
+    volume: seriesInfo.volume
   };
 }
 

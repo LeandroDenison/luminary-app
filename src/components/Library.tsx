@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   BookOpen,
   Plus,
@@ -12,11 +12,13 @@ import {
   CloudOff,
   RefreshCw,
   X,
-  Archive
+  Archive,
+  SlidersHorizontal
 } from 'lucide-react';
 import { BookDetailModal } from './BookDetailModal';
 import { FreeBooksCatalogModal } from './FreeBooksCatalogModal';
 import { DriveSyncModal } from './DriveSyncModal';
+import { SortFilterModal, type SortOption } from './SortFilterModal';
 import { BookCover } from './BookCover';
 import { StorageService } from '../services/storage';
 import { DriveSync, deduplicateAndMergeBooks, type SyncStatus } from '../services/driveSync';
@@ -25,7 +27,7 @@ import { LiveUpdater, CURRENT_APP_VERSION, type LiveUpdateStatus } from '../serv
 import { CoverLoader } from '../services/coverLoader';
 import { parsePdfFile } from '../services/pdfHelper';
 import { parseEpubFile } from '../services/epubHelper';
-import { matchesBookSearch, cleanBookTitleAndAuthor } from '../utils/textCleaner';
+import { matchesBookSearch, cleanBookTitleAndAuthor, normalizeSearchText } from '../utils/textCleaner';
 import type { Book, BookFormat } from '../types';
 
 interface LibraryProps {
@@ -39,6 +41,11 @@ type FilterType = 'all' | 'reading' | 'completed' | 'pdf' | 'epub' | 'archived';
 export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('recent');
+  const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
+  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
+  const [showSortFilterModal, setShowSortFilterModal] = useState(false);
+
   const [coverOverrides, setCoverOverrides] = useState<Record<string, string>>({});
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
@@ -52,16 +59,22 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
 
   useEffect(() => DriveSync.subscribe((s) => setSyncStatus(s)), []);
 
-  // Monitora e carrega capas em segundo plano ao longo do uso do app
+  // Monitora e carrega capas e metadados na web em segundo plano
   useEffect(() => {
     CoverLoader.queueBooks(books);
   }, [books]);
 
   useEffect(() => {
-    return CoverLoader.subscribe((bookId, newCoverUrl) => {
-      setCoverOverrides((prev) => ({ ...prev, [bookId]: newCoverUrl }));
+    return CoverLoader.subscribe((bookId, newCoverUrl, updatedBook) => {
+      if (newCoverUrl) {
+        setCoverOverrides((prev) => ({ ...prev, [bookId]: newCoverUrl }));
+      }
+      if (updatedBook) {
+        onRefreshBooks();
+      }
     });
-  }, []);
+  }, [onRefreshBooks]);
+
   useEffect(() => {
     return LiveUpdater.subscribe((s) => {
       setLiveUpdateStatus(s);
@@ -77,19 +90,36 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
     });
   };
 
-  // Auto-sanitiza livros com "Cópia de" e desduplica livros repetidos
+  // Auto-sanitiza livros com "Cópia de", extrai série/volume e desduplica livros repetidos
   useEffect(() => {
     if (books.length === 0) return;
     let changed = false;
     for (const b of books) {
-      const { title, author } = cleanBookTitleAndAuthor(b.title, b.author);
+      const { title, author, series, volume } = cleanBookTitleAndAuthor(b.title, b.author, b.series);
       let cover = b.coverUrl;
       if (cover && (cover.includes('googleusercontent.com') || cover.includes('drive.google.com'))) {
         cover = undefined;
       }
-      if (title !== b.title || author !== b.author || cover !== b.coverUrl) {
+      if (
+        title !== b.title ||
+        author !== b.author ||
+        cover !== b.coverUrl ||
+        (series && !b.series) ||
+        (volume && !b.volume)
+      ) {
         changed = true;
-        StorageService.saveBook({ ...b, title, author, coverUrl: cover }, undefined, { preserveTimestamp: true }).catch(() => {});
+        StorageService.saveBook(
+          {
+            ...b,
+            title,
+            author,
+            coverUrl: cover,
+            series: b.series || series,
+            volume: b.volume || volume
+          },
+          undefined,
+          { preserveTimestamp: true }
+        ).catch(() => {});
       }
     }
 
@@ -113,26 +143,83 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const archivedCount = books.filter((b) => b.isArchived).length;
-  const activeBooks = books.filter((b) => !b.isArchived);
+  const activeBooks = useMemo(() => books.filter((b) => !b.isArchived), [books]);
 
-  // Filter books (busca inteligente por título e autor, sem travar em acentos)
-  const filteredBooks = books.filter((book) => {
-    if (!matchesBookSearch(book, searchTerm)) return false;
-
-    // Se a aba 'arquivados' estiver ativa, mostra apenas arquivados
-    if (activeFilter === 'archived') {
-      return Boolean(book.isArchived);
+  // Lista dinâmica de autores com contagem de livros
+  const authorCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of activeBooks) {
+      if (b.author && !/desconhecido/i.test(b.author)) {
+        counts.set(b.author, (counts.get(b.author) || 0) + 1);
+      }
     }
+    return Array.from(counts.entries())
+      .map(([author, count]) => ({ author, count }))
+      .sort((a, b) => b.count - a.count || a.author.localeCompare(b.author, 'pt-BR'));
+  }, [activeBooks]);
 
-    // Em todas as outras abas (incluindo 'all'), os arquivados ficam ocultos
-    if (book.isArchived) return false;
+  // Lista dinâmica de séries
+  const seriesList = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const b of activeBooks) {
+      if (b.series) {
+        counts.set(b.series, (counts.get(b.series) || 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([series, count]) => ({ series, count }))
+      .sort((a, b) => b.count - a.count || a.series.localeCompare(b.series, 'pt-BR'));
+  }, [activeBooks]);
 
-    if (activeFilter === 'reading') return book.progress > 0 && book.progress < 100;
-    if (activeFilter === 'completed') return book.progress >= 100;
-    if (activeFilter === 'pdf') return book.format === 'pdf';
-    if (activeFilter === 'epub') return book.format === 'epub';
-    return true;
-  });
+  // Filtragem
+  const filteredBooks = useMemo(() => {
+    const result = books.filter((book) => {
+      if (!matchesBookSearch(book, searchTerm)) return false;
+
+      // Se a aba 'arquivados' estiver ativa, mostra apenas arquivados
+      if (activeFilter === 'archived') {
+        return Boolean(book.isArchived);
+      }
+
+      // Em todas as outras abas (incluindo 'all'), os arquivados ficam ocultos
+      if (book.isArchived) return false;
+
+      // Filtro por autor selecionado
+      if (selectedAuthor && normalizeSearchText(book.author) !== normalizeSearchText(selectedAuthor)) {
+        return false;
+      }
+
+      // Filtro por série selecionada
+      if (selectedSeries && (!book.series || normalizeSearchText(book.series) !== normalizeSearchText(selectedSeries))) {
+        return false;
+      }
+
+      if (activeFilter === 'reading') return book.progress > 0 && book.progress < 100;
+      if (activeFilter === 'completed') return book.progress >= 100;
+      if (activeFilter === 'pdf') return book.format === 'pdf';
+      if (activeFilter === 'epub') return book.format === 'epub';
+      return true;
+    });
+
+    // Ordenação
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case 'title-asc':
+          return a.title.localeCompare(b.title, 'pt-BR', { sensitivity: 'base' });
+        case 'title-desc':
+          return b.title.localeCompare(a.title, 'pt-BR', { sensitivity: 'base' });
+        case 'author-asc':
+          return (a.author || '').localeCompare(b.author || '', 'pt-BR', { sensitivity: 'base' });
+        case 'progress':
+          return (b.progress || 0) - (a.progress || 0);
+        case 'recent':
+        default:
+          return (b.lastReadAt || b.addedAt || 0) - (a.lastReadAt || a.addedAt || 0);
+      }
+    });
+
+    return result;
+  }, [books, searchTerm, activeFilter, selectedAuthor, selectedSeries, sortBy]);
 
   // Recent book to "Continue Reading" (ignora arquivados)
   const recentBook = activeBooks.find((b) => b.progress > 0 && b.progress < 100) || activeBooks[0];
@@ -185,7 +272,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         description = meta.description;
       }
 
-      // Remove prefixos automáticos como "Cópia de " e detecta autor/título se estiver no nome
+      // Remove prefixos automáticos como "Cópia de " e extrai série/volume se presente
       const cleaned = cleanBookTitleAndAuthor(title, author);
       title = cleaned.title;
       author = cleaned.author;
@@ -194,6 +281,8 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         id: `book-${Date.now()}`,
         title,
         author,
+        series: cleaned.series,
+        volume: cleaned.volume,
         format,
         coverUrl,
         addedAt: Date.now(),
@@ -223,6 +312,8 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
     await StorageService.deleteBook(id);
     refreshAndSync();
   };
+
+  const isFilterActive = sortBy !== 'recent' || selectedAuthor !== null || selectedSeries !== null;
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-950 text-slate-100 overflow-y-auto">
@@ -273,7 +364,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             {/* Cloud / Google Drive Button */}
             <button
               onClick={() => setShowDriveModal(true)}
-              className={`relative p-1.5 rounded-xl border transition-colors ${
+              className={`relative p-1.5 rounded-xl border transition-colors cursor-pointer ${
                 cloudConnected
                   ? 'bg-sky-500/10 text-sky-300 border-sky-500/30 hover:bg-sky-500/20'
                   : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
@@ -292,7 +383,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             {/* Free Books Button */}
             <button
               onClick={() => setShowCatalogModal(true)}
-              className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors cursor-pointer"
               title="Catálogo de Clássicos Grátis"
             >
               <Sparkles size={14} />
@@ -302,7 +393,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             {/* Import Button */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1.5 rounded-xl text-xs transition-transform active:scale-95 shadow-md shadow-amber-500/20"
+              className="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3 py-1.5 rounded-xl text-xs transition-transform active:scale-95 shadow-md shadow-amber-500/20 cursor-pointer"
               title="Importar PDF ou EPUB"
             >
               <Plus size={16} />
@@ -319,28 +410,96 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar por título ou autor..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-hidden focus:border-amber-500/50"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-full cursor-pointer"
-              title="Limpar busca"
-            >
-              <X size={14} />
-            </button>
-          )}
+        {/* Search Bar + Sort/Filter Button */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por título ou autor..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-hidden focus:border-amber-500/50"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-full cursor-pointer"
+                title="Limpar busca"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Sort & Filter Button no canto direito da barra de pesquisa */}
+          <button
+            onClick={() => setShowSortFilterModal(true)}
+            className={`p-2 rounded-xl border text-xs font-medium transition-all flex items-center justify-center shrink-0 cursor-pointer relative ${
+              isFilterActive
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-semibold'
+                : 'bg-slate-900 text-slate-300 hover:text-white border-slate-800 hover:border-slate-700'
+            }`}
+            title="Ordenar (A-Z, Z-A) e filtrar por autor ou série"
+          >
+            <SlidersHorizontal size={16} />
+            {isFilterActive && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-slate-950" />
+            )}
+          </button>
         </div>
 
-        {/* Filters */}
+        {/* Active Filter Chips (se algum filtro ou ordenação diferente estiver ativo) */}
+        {isFilterActive && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2">
+            {sortBy !== 'recent' && (
+              <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-lg">
+                <span>
+                  {sortBy === 'title-asc'
+                    ? 'A → Z'
+                    : sortBy === 'title-desc'
+                    ? 'Z → A'
+                    : sortBy === 'author-asc'
+                    ? 'Autor A-Z'
+                    : 'Maior Progresso'}
+                </span>
+                <button
+                  onClick={() => setSortBy('recent')}
+                  className="hover:text-white cursor-pointer ml-0.5"
+                  title="Remover ordenação"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            )}
+            {selectedAuthor && (
+              <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-lg">
+                <span className="truncate max-w-[140px]">Autor: {selectedAuthor}</span>
+                <button
+                  onClick={() => setSelectedAuthor(null)}
+                  className="hover:text-white cursor-pointer ml-0.5"
+                  title="Remover filtro de autor"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            )}
+            {selectedSeries && (
+              <span className="inline-flex items-center gap-1 text-[11px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-lg">
+                <span className="truncate max-w-[140px]">Série: {selectedSeries}</span>
+                <button
+                  onClick={() => setSelectedSeries(null)}
+                  className="hover:text-white cursor-pointer ml-0.5"
+                  title="Remover filtro de série"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Filter Tabs */}
         <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-0.5 no-scrollbar">
           {[
             { id: 'all' as const, label: 'Todos' },
@@ -353,7 +512,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             <button
               key={f.id}
               onClick={() => setActiveFilter(f.id)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium shrink-0 transition-colors flex items-center gap-1 ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium shrink-0 transition-colors flex items-center gap-1 cursor-pointer ${
                 activeFilter === f.id
                   ? 'bg-amber-500 text-slate-950 font-semibold shadow-xs'
                   : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800/80'
@@ -379,18 +538,23 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         )}
 
         {/* "Continuar Lendo" Card (Hero) */}
-        {!searchTerm && activeFilter === 'all' && recentBook && (
+        {!searchTerm && !isFilterActive && activeFilter === 'all' && recentBook && (
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-amber-950/30 border border-amber-500/20 p-4 shadow-xl">
             <div className="flex gap-3.5 items-center">
               <div
                 onClick={() => onOpenBook(recentBook)}
-                className="w-18 h-26 rounded-xl overflow-hidden bg-slate-800 shrink-0 shadow-md border border-slate-700/60 cursor-pointer active:scale-95 transition-transform"
+                className="w-18 h-26 rounded-xl overflow-hidden bg-slate-800 shrink-0 shadow-md border border-slate-700/60 cursor-pointer active:scale-95 transition-transform relative"
               >
                 <BookCover
                   coverUrl={coverOverrides[recentBook.id] || recentBook.coverUrl}
                   title={recentBook.title}
                   author={recentBook.author}
                 />
+                {recentBook.volume && (
+                  <span className="absolute bottom-1 right-1 text-[8px] font-bold bg-amber-500 text-slate-950 px-1 rounded shadow-xs">
+                    Vol. {recentBook.volume}
+                  </span>
+                )}
               </div>
 
               <div className="flex-1 overflow-hidden">
@@ -398,6 +562,12 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                   <Clock size={12} />
                   <span>Continuar Leitura</span>
                 </div>
+
+                {recentBook.series && (
+                  <p className="text-[10px] text-amber-400/90 font-semibold tracking-wide truncate mt-0.5">
+                    {recentBook.series} {recentBook.volume ? `· #${recentBook.volume}` : ''}
+                  </p>
+                )}
 
                 <h3
                   onClick={() => onOpenBook(recentBook)}
@@ -420,7 +590,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
 
                 <button
                   onClick={() => onOpenBook(recentBook)}
-                  className="mt-2.5 inline-flex items-center gap-1 text-xs text-amber-300 hover:text-amber-200 font-medium"
+                  className="mt-2.5 inline-flex items-center gap-1 text-xs text-amber-300 hover:text-amber-200 font-medium cursor-pointer"
                 >
                   <span>Abrir leitor</span>
                   <ArrowRight size={13} />
@@ -434,11 +604,11 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         <div>
           <div className="flex items-center justify-between mb-3 px-1">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 m-0">
-              {activeFilter === 'all'
+              {activeFilter === 'all' && !isFilterActive
                 ? 'Todos os Livros'
                 : activeFilter === 'archived'
                 ? `Livros Arquivados (${filteredBooks.length})`
-                : `Filtrados (${filteredBooks.length})`}
+                : `Livros (${filteredBooks.length})`}
             </h2>
           </div>
 
@@ -453,18 +623,32 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                 </p>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
                   {activeFilter === 'archived'
-                    ? 'Para ocultar títulos ou duplicatas de teste da estante principal, abra os detalhes do livro e toque no ícone de arquivar.'
+                    ? 'Para ocultar títulos da estante principal, abra os detalhes do livro e toque no ícone de arquivar.'
+                    : isFilterActive
+                    ? 'Nenhum livro corresponde aos filtros selecionados. Tente limpar os filtros de autor ou série.'
                     : 'Importe arquivos PDF ou EPUB pelo botão acima ou explore clássicos grátis!'}
                 </p>
               </div>
-              {activeFilter !== 'archived' && (
+              {isFilterActive ? (
+                <button
+                  onClick={() => {
+                    setSelectedAuthor(null);
+                    setSelectedSeries(null);
+                    setSortBy('recent');
+                    setSearchTerm('');
+                  }}
+                  className="mt-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Limpar todos os filtros
+                </button>
+              ) : activeFilter !== 'archived' ? (
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors"
+                  className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors cursor-pointer"
                 >
                   Importar livro agora
                 </button>
-              )}
+              ) : null}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5">
@@ -492,6 +676,13 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                       {book.format}
                     </span>
 
+                    {/* Volume Badge on Cover */}
+                    {book.volume && (
+                      <span className="absolute bottom-1.5 right-1.5 text-[9px] font-bold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-md shadow-md">
+                        Vol. {book.volume}
+                      </span>
+                    )}
+
                     {/* Archived badge or Finished indicator */}
                     {book.isArchived ? (
                       <span className="absolute top-1.5 right-1.5 text-[9px] font-semibold bg-amber-500/90 text-slate-950 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-md">
@@ -516,9 +707,14 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                     )}
                   </div>
 
-                  {/* Title & Author */}
+                  {/* Title & Author & Series */}
                   <div className="flex-1 flex flex-col justify-between">
                     <div>
+                      {book.series && (
+                        <span className="text-[10px] font-semibold text-amber-400/90 truncate block tracking-wide">
+                          {book.series}{book.volume ? ` · #${book.volume}` : ''}
+                        </span>
+                      )}
                       <h4 className="font-semibold text-xs text-slate-200 line-clamp-1 group-hover:text-amber-300 transition-colors">
                         {book.title}
                       </h4>
@@ -540,7 +736,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
       {/* Book Detail Modal */}
       <BookDetailModal
         book={selectedBook}
-        isOpen={!!selectedBook}
+        isOpen={Boolean(selectedBook)}
         onClose={() => setSelectedBook(null)}
         onRead={(book) => {
           setSelectedBook(null);
@@ -550,18 +746,37 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         onUpdate={handleUpdateBook}
       />
 
+      {/* Sort & Filter Modal */}
+      <SortFilterModal
+        isOpen={showSortFilterModal}
+        onClose={() => setShowSortFilterModal(false)}
+        sortBy={sortBy}
+        onSelectSort={(sort) => setSortBy(sort)}
+        selectedAuthor={selectedAuthor}
+        onSelectAuthor={(author) => setSelectedAuthor(author)}
+        authorCounts={authorCounts}
+        selectedSeries={selectedSeries}
+        onSelectSeries={(series) => setSelectedSeries(series)}
+        seriesList={seriesList}
+        onReset={() => {
+          setSortBy('recent');
+          setSelectedAuthor(null);
+          setSelectedSeries(null);
+        }}
+      />
+
       {/* Free Books Catalog Modal */}
       <FreeBooksCatalogModal
         isOpen={showCatalogModal}
         onClose={() => setShowCatalogModal(false)}
-        onBookAdded={refreshAndSync}
+        onBookAdded={() => refreshAndSync()}
       />
 
       {/* Google Drive Sync Modal */}
       <DriveSyncModal
         isOpen={showDriveModal}
         onClose={() => setShowDriveModal(false)}
-        onSynced={onRefreshBooks}
+        onSynced={() => refreshAndSync()}
       />
     </div>
   );

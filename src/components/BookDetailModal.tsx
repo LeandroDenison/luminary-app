@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, BookOpen, Trash2, CheckCircle2, Pencil, Check, Archive, ArchiveRestore, Quote } from 'lucide-react';
+import { X, BookOpen, Trash2, CheckCircle2, Pencil, Check, Archive, ArchiveRestore, Quote, Sparkles, Layers } from 'lucide-react';
 import { BookCover } from './BookCover';
 import { QuoteCardModal } from './Reader/QuoteCardModal';
 import { cleanBookTitleAndAuthor } from '../utils/textCleaner';
+import { CoverLoader } from '../services/coverLoader';
 import type { Book } from '../types';
 
 interface BookDetailModalProps {
@@ -25,13 +26,19 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editAuthor, setEditAuthor] = useState('');
+  const [editSeries, setEditSeries] = useState('');
+  const [editVolume, setEditVolume] = useState('');
+  const [isSearchingWeb, setIsSearchingWeb] = useState(false);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
 
   useEffect(() => {
     if (book) {
       setEditTitle(book.title);
       setEditAuthor(book.author);
+      setEditSeries(book.series || '');
+      setEditVolume(book.volume || '');
       setIsEditing(false);
+      setIsSearchingWeb(false);
     }
   }, [book]);
 
@@ -45,14 +52,33 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
   const handleSaveEdit = () => {
     if (!editTitle.trim()) return;
-    const { title, author } = cleanBookTitleAndAuthor(editTitle, editAuthor);
+    const cleaned = cleanBookTitleAndAuthor(editTitle, editAuthor, editSeries);
     const updated: Book = {
       ...book,
-      title: title.trim(),
-      author: author.trim() || 'Autor desconhecido'
+      title: cleaned.title.trim(),
+      author: cleaned.author.trim() || 'Autor desconhecido',
+      series: editSeries.trim() || cleaned.series,
+      volume: editVolume.trim() || cleaned.volume,
+      updatedAt: Date.now()
     };
     if (onUpdate) onUpdate(updated);
     setIsEditing(false);
+  };
+
+  const handleSearchWeb = async () => {
+    setIsSearchingWeb(true);
+    try {
+      const enriched = await CoverLoader.enrichSingleBook(book);
+      if (onUpdate) onUpdate(enriched);
+      setEditTitle(enriched.title);
+      setEditAuthor(enriched.author);
+      setEditSeries(enriched.series || '');
+      setEditVolume(enriched.volume || '');
+    } catch (e) {
+      console.warn('Erro ao buscar dados na web:', e);
+    } finally {
+      setIsSearchingWeb(false);
+    }
   };
 
   return (
@@ -61,12 +87,19 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-md">
+            <span className="text-xs font-mono uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-md font-bold">
               {book.format.toUpperCase()}
             </span>
             {book.isArchived && (
               <span className="text-[10px] font-medium uppercase bg-slate-800 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
                 <Archive size={11} /> Arquivado
+              </span>
+            )}
+            {book.series && (
+              <span className="text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 truncate max-w-[150px]">
+                <Layers size={10} />
+                <span className="truncate">{book.series}</span>
+                {book.volume && <span>#{book.volume}</span>}
               </span>
             )}
           </div>
@@ -80,13 +113,18 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
         {/* Book Cover and info */}
         <div className="flex gap-4 items-start">
-          <div className="w-24 h-34 shrink-0 rounded-xl overflow-hidden bg-slate-800 shadow-lg border border-slate-700/50 flex items-center justify-center">
+          <div className="w-24 h-34 shrink-0 rounded-xl overflow-hidden bg-slate-800 shadow-lg border border-slate-700/50 flex items-center justify-center relative">
             <BookCover
               coverUrl={book.coverUrl}
               title={editTitle || book.title}
               author={editAuthor || book.author}
               className="w-full h-full"
             />
+            {book.volume && (
+              <span className="absolute bottom-1 right-1 text-[9px] font-bold bg-amber-500 text-slate-950 px-1 py-0.2 rounded shadow-xs">
+                Vol. {book.volume}
+              </span>
+            )}
           </div>
 
           <div className="flex-1 overflow-hidden">
@@ -112,6 +150,28 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                     placeholder="Autor do livro"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-medium">Série</label>
+                    <input
+                      type="text"
+                      value={editSeries}
+                      onChange={(e) => setEditSeries(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-hidden focus:border-amber-400"
+                      placeholder="Ex: A Torre Negra"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-medium">Volume</label>
+                    <input
+                      type="text"
+                      value={editVolume}
+                      onChange={(e) => setEditVolume(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-hidden focus:border-amber-400"
+                      placeholder="Ex: 2"
+                    />
+                  </div>
+                </div>
                 <div className="flex gap-1.5 pt-1">
                   <button
                     onClick={handleSaveEdit}
@@ -123,6 +183,8 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                     onClick={() => {
                       setEditTitle(book.title);
                       setEditAuthor(book.author);
+                      setEditSeries(book.series || '');
+                      setEditVolume(book.volume || '');
                       setIsEditing(false);
                     }}
                     className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs py-1 px-2 rounded-lg cursor-pointer"
@@ -134,16 +196,34 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
             ) : (
               <>
                 <div className="flex items-start justify-between gap-1">
-                  <h3 className="font-bold text-base leading-snug line-clamp-2">{book.title}</h3>
+                  <div>
+                    {book.series && (
+                      <p className="text-[10px] text-amber-400 font-semibold tracking-wide">
+                        {book.series} {book.volume ? `· Livro ${book.volume}` : ''}
+                      </p>
+                    )}
+                    <h3 className="font-bold text-base leading-snug line-clamp-2">{book.title}</h3>
+                  </div>
                   <button
                     onClick={() => setIsEditing(true)}
                     className="p-1 text-slate-400 hover:text-amber-400 transition-colors shrink-0"
-                    title="Editar título e autor"
+                    title="Editar informações"
                   >
                     <Pencil size={13} />
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">{book.author}</p>
+                <p className="text-xs text-slate-400 mt-0.5">{book.author}</p>
+
+                {/* Botão Buscar dados na Web */}
+                <button
+                  onClick={handleSearchWeb}
+                  disabled={isSearchingWeb}
+                  className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+                  title="Buscar autor oficial, capa em alta resolução e sinopse na web"
+                >
+                  <Sparkles size={12} className={isSearchingWeb ? 'animate-spin' : 'text-amber-400'} />
+                  <span>{isSearchingWeb ? 'Buscando na Web...' : 'Completar Dados na Web'}</span>
+                </button>
 
                 <div className="mt-3 flex items-center gap-2">
                   <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">

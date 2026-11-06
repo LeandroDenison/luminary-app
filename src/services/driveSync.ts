@@ -179,6 +179,12 @@ export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> 
       if (!winner.driveFileId && loser.driveFileId) {
         winner.driveFileId = loser.driveFileId;
       }
+      if (!winner.series && loser.series) {
+        winner.series = loser.series;
+      }
+      if (!winner.volume && loser.volume) {
+        winner.volume = loser.volume;
+      }
       if (!winner.coverUrl && loser.coverUrl) {
         winner.coverUrl = loser.coverUrl;
       }
@@ -536,18 +542,20 @@ function buildBookMetadataFromFile(
   const rawName = file.name.replace(/\.(pdf|epub)$/i, '');
   const folderMeta = extractMetadataFromFolderPath(folderPath);
 
-  // Limpa o nome do arquivo, usando o autor da pasta se disponível
-  const cleaned = cleanBookTitleAndAuthor(rawName, folderMeta.author);
+  // Limpa o nome do arquivo, extrai série/volume e usa o autor da pasta se disponível
+  const cleaned = cleanBookTitleAndAuthor(rawName, folderMeta.author, folderMeta.series);
   let title = cleaned.title;
   let author = cleaned.author;
+  const series = cleaned.series || folderMeta.series;
+  const volume = cleaned.volume;
 
   if ((!author || /desconhecido/i.test(author)) && folderMeta.author) {
     author = folderMeta.author;
   }
 
   let description: string | undefined;
-  if (folderMeta.series) {
-    description = `Série: ${folderMeta.series}`;
+  if (series) {
+    description = `Série: ${series}${volume ? ` (Livro ${volume})` : ''}`;
   }
 
   const now = Date.now();
@@ -555,6 +563,8 @@ function buildBookMetadataFromFile(
     id: `drive-${file.id}`,
     title,
     author: author || 'Autor desconhecido',
+    series,
+    volume,
     format,
     coverUrl: undefined,
     addedAt: now,

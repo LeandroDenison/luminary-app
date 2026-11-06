@@ -40,6 +40,10 @@ export interface Book {
   marginSize?: ReaderMarginSize;
   bookmarks: Bookmark[];
   description?: string;
+  /** Nome da série ou coleção a que o livro pertence (ex: "A Torre Negra", "Harry Potter") */
+  series?: string;
+  /** Número do volume na série (ex: "1", "2", "02") */
+  volume?: string;
   /** Se o livro está arquivado / oculto da estante principal */
   isArchived?: boolean;
   /** Última modificação dos metadados (usado na sincronização com o Drive) */

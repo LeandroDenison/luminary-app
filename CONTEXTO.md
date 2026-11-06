@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.23` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.24` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,14 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.23)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.24)
 
 ### 📖 Leitor & Usabilidade
+0. **Busca na Web de Metadados Incompletos, Higienização de Séries & Filtros Avançados (v1.0.24):**
+   - **Busca de Metadados na Web:** Varredura em segundo plano e sob demanda via Apple Books / Open Library para preencher autores em livros onde o arquivo veio sem autor ("Autor desconhecido"), capas em alta resolução e sinopses completas.
+   - **Higienização de Séries & Volumes:** Remove prefixos ruidosos como `"#2 - "`, `"02 - "` ou `"Vol. 2 - "` do título do livro, extraindo o volume para uma badge destacada na capa (`Vol. 2`) e a série para uma tag elegante sobre o título (`A Torre Negra · #2`), seguindo o padrão de referências consagradas como Kindle, Apple Books e Goodreads.
+   - **Filtros e Ordenação Avançada na Estante:** Botão moderno no canto direito da barra de pesquisa com ordenação completa (A-Z, Z-A, Recentes, Maior Progresso, Autor A-Z) e filtros dinâmicos por autor (com contagem de obras) e por série, além de chips com remoção rápida em 1 toque.
+   - **Completar Dados na Web nos Detalhes:** Botão com ícone de varinha mágica na tela de detalhes do livro para enriquecer qualquer obra individual instantaneamente.
 0. **Eliminação Inteligente de Livros Incompletos por Score de Completude (v1.0.23):**
    * **Critério de Seleção do Mais Completo:** Avaliação objetiva por pontuação (`getBookCompletenessScore`): autor conhecido (+100), progresso de leitura (+50+prog), capa válida (+30), páginas (+20), descrição (+10), Drive (+15) e marcadores (+5 cada).
    * **Fusão & Exclusão Automática da Cópia Incompleta:** Resolve duplicatas entre arquivos diferentes da mesma obra (ex: *"O Cemitério - Autor desconhecido"* vs *"O Cemitério - Stephen King"*). Preserva todo o progresso e arquivo do vencedor, transferindo dados faltantes e deletando o registro incompleto localmente.
