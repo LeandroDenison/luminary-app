@@ -3,7 +3,7 @@ import { GoogleAuth } from './googleAuth';
 import { StorageService } from './storage';
 import { parsePdfFile } from './pdfHelper';
 import { parseEpubFile } from './epubHelper';
-import { cleanBookTitleAndAuthor } from '../utils/textCleaner';
+import { cleanBookTitleAndAuthor, getBookDeduplicationKey } from '../utils/textCleaner';
 import type { Book, BookFormat, DeletedEntry } from '../types';
 
 /**
@@ -90,6 +90,70 @@ export function extractMetadataFromFolderPath(folderPath: string[]): {
   const author = meaningful[0];
   const series = meaningful.slice(1).join(' - ');
   return { author, series };
+}
+
+/**
+ * Função de desduplicação e fusão de livros da estante.
+ * Elimina duplicatas de sincronização ou arquivos repetidos, preservando
+ * o maior progresso de leitura, marcadores e vínculos de nuvem.
+ */
+export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> {
+  const groups = new Map<string, Book[]>();
+
+  for (const b of books) {
+    const key = getBookDeduplicationKey(b.title, b.format, b.author);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(b);
+  }
+
+  let hasChanges = false;
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue;
+
+    hasChanges = true;
+    console.log(`[Deduplicator] Fundindo ${group.length} cópias de "${group[0].title}"`);
+
+    // Prioriza o livro com maior progresso de leitura, com driveFileId e mais recente
+    group.sort((a, b) => {
+      if ((b.progress || 0) !== (a.progress || 0)) {
+        return (b.progress || 0) - (a.progress || 0);
+      }
+      if (Boolean(b.driveFileId) !== Boolean(a.driveFileId)) {
+        return b.driveFileId ? 1 : -1;
+      }
+      return (b.updatedAt || 0) - (a.updatedAt || 0);
+    });
+
+    const winner = { ...group[0] };
+    const losers = group.slice(1);
+
+    for (const loser of losers) {
+      if (!winner.driveFileId && loser.driveFileId) {
+        winner.driveFileId = loser.driveFileId;
+      }
+      if (!winner.coverUrl && loser.coverUrl) {
+        winner.coverUrl = loser.coverUrl;
+      }
+      if ((!winner.description || winner.description.length < 10) && loser.description) {
+        winner.description = loser.description;
+      }
+      if ((!winner.totalPages || winner.totalPages <= 1) && loser.totalPages && loser.totalPages > 1) {
+        winner.totalPages = loser.totalPages;
+      }
+      if (loser.bookmarks && loser.bookmarks.length > 0) {
+        const existingLabels = new Set((winner.bookmarks || []).map((bm) => String(bm.pageOrCfi)));
+        const newBookmarks = loser.bookmarks.filter((bm) => !existingLabels.has(String(bm.pageOrCfi)));
+        winner.bookmarks = [...(winner.bookmarks || []), ...newBookmarks];
+      }
+
+      await StorageService.removeLocalOnly(loser.id);
+    }
+
+    await StorageService.saveBook(winner, undefined, { preserveTimestamp: true });
+  }
+
+  return hasChanges;
 }
 
 // ---- Status listeners (so the UI can show a cloud indicator) ----
@@ -263,6 +327,32 @@ export const DriveSync = {
         merged[id] = winner;
       }
 
+      // ---- 3.5. Desduplica livros idênticos no merged ----
+      const dedupGroups = new Map<string, Book[]>();
+      for (const b of Object.values(merged)) {
+        const k = getBookDeduplicationKey(b.title, b.format, b.author);
+        if (!dedupGroups.has(k)) dedupGroups.set(k, []);
+        dedupGroups.get(k)!.push(b);
+      }
+      for (const group of dedupGroups.values()) {
+        if (group.length <= 1) continue;
+        group.sort((a, b) => {
+          if ((b.progress || 0) !== (a.progress || 0)) return (b.progress || 0) - (a.progress || 0);
+          if (Boolean(b.driveFileId) !== Boolean(a.driveFileId)) return b.driveFileId ? 1 : -1;
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
+        });
+        const winner = group[0];
+        const losers = group.slice(1);
+        for (const loser of losers) {
+          if (!winner.driveFileId && loser.driveFileId) winner.driveFileId = loser.driveFileId;
+          if (!winner.coverUrl && loser.coverUrl) winner.coverUrl = loser.coverUrl;
+          delete merged[loser.id];
+          await StorageService.removeLocalOnly(loser.id);
+        }
+        merged[winner.id] = winner;
+        await StorageService.saveBook(winner, undefined, { preserveTimestamp: true });
+      }
+
       // ---- 4. Upload book files that are not on the Drive yet (apenas se adicionados localmente via importador) ----
       for (const book of Object.values(merged)) {
         if (book.driveFileId) continue;
@@ -291,7 +381,7 @@ export const DriveSync = {
         }
       }
 
-      // ---- 6. Catalog PDFs/EPUBs found in Drive and subfolders (ULTRA RÁPIDO: SEM BAIXAR ARQUIVOS PESADOS) ----
+      // ---- 6. Catalog PDFs/EPUBs found in Drive and subfolders (SEM DUPLICIDADE) ----
       const knownFileIds = new Set(Object.values(merged).map((b) => b.driveFileId).filter(Boolean));
       const deletedFileIds = new Set(Object.values(deleted).map((d) => d.driveFileId).filter(Boolean));
       
@@ -307,8 +397,26 @@ export const DriveSync = {
         if (!format || knownFileIds.has(file.id) || deletedFileIds.has(file.id)) continue;
 
         try {
-          // Catalogação leve e instantânea: entrega a estante imediatamente
           const book = buildBookMetadataFromFile(file, format, folderPath);
+          const bookKey = getBookDeduplicationKey(book.title, book.format, book.author);
+
+          // Verifica se já existe um livro no merged com a mesma chave ou driveFileId
+          const existing = Object.values(merged).find(
+            (b) => (b.driveFileId && b.driveFileId === file.id) ||
+                   getBookDeduplicationKey(b.title, b.format, b.author) === bookKey
+          );
+
+          if (existing) {
+            // Se já existe na estante, conecta o driveFileId sem criar cópia duplicada!
+            if (!existing.driveFileId) {
+              existing.driveFileId = file.id;
+              await StorageService.saveBook(existing, undefined, { preserveTimestamp: true });
+            }
+            knownFileIds.add(file.id);
+            continue;
+          }
+
+          // Catalogação leve e instantânea: entrega a estante imediatamente
           await StorageService.saveBook(book, undefined, { preserveTimestamp: true });
           merged[book.id] = book;
           knownFileIds.add(file.id);

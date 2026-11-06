@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.20` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.21` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,12 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.20)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.21)
 
 ### 📖 Leitor & Usabilidade
+0. **Sessão Contínua Google Drive & Auto-Desduplicação de Livros (v1.0.21):**
+   * **Sessão Persistente Sem Quedas:** Renovação transparente e silenciosa do token de acesso do Google (Google Play Services / OAuth). Se qualquer chamada responder 401, o app renova em background e repete a requisição automaticamente, acabando com as quedas frequentes de login.
+   * **Desduplicação & Fusão Inteligente:** O algoritmo [`deduplicateAndMergeBooks`](file:///c:/Users/leand/OneDrive%20-%20HAPVIDA%20ASSIST%C3%8ANCIA%20M%C3%89DICA%20LTDA/%C3%81rea%20de%20Trabalho/luminary-app/src/services/driveSync.ts) identifica cópias repetidas (mesmo com nomes como *"Cópia de"*, `(1)` ou IDs locais diferentes) e funde as obras em um único livro na estante, preservando o maior progresso de leitura, marcadores e vinculação com o Drive.
 0. **Carregamento Assíncrono de Capas & Reconhecimento Profundo (v1.0.20):**
    * **Carregamento Suave em Segundo Plano:** O `CoverLoader` busca miniaturas leves do Google Drive e APIs abertas (Google Books / Open Library) gradualmente durante o uso do app, sem travar a interface, e salva localmente no IndexedDB de forma definitiva.
    * **Extração Infalível de Capas em EPUBs:** Algoritmo profundo em 4 camadas que inspeciona o manifesto (`properties="cover-image"`), a primeira página do spine (`cover.xhtml` com tags `<img>` ou `<image>` SVG) e varredura do arquivo ZIP. Corrige o reconhecimento de capas em obras brasileiras da Suma/LeYa (ex: *"A Hora do Vampiro"* e *"O Cemitério"* de Stephen King).

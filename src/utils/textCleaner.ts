@@ -75,3 +75,22 @@ export function matchesBookSearch(
     (word) => normalizedTitle.includes(word) || normalizedAuthor.includes(word)
   );
 }
+
+/**
+ * Chave única normalizada para detecção e fusão de livros duplicados.
+ * Agrupa livros que tenham o mesmo título essencial e formato,
+ * ignorando prefixos como "Cópia de", sufixos como "(1)", pontuação e acentos.
+ */
+export function getBookDeduplicationKey(title: string, format: string, author?: string): string {
+  const cleaned = cleanBookTitleAndAuthor(title, author);
+  let cleanTitle = cleaned.title;
+  cleanTitle = cleanTitle.replace(/\s*\(\d+\)$/, '').trim();
+  cleanTitle = cleanTitle.replace(/\s*[-—–]\s*c[oó]pia$/i, '').trim();
+
+  const normTitle = normalizeSearchText(cleanTitle);
+  const normAuthor = cleaned.author && !/desconhecido/i.test(cleaned.author)
+    ? normalizeSearchText(cleaned.author)
+    : '';
+
+  return `${normTitle}|${format.toLowerCase()}${normAuthor ? `|${normAuthor}` : ''}`;
+}

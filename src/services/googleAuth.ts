@@ -21,6 +21,7 @@ interface StoredToken {
 }
 
 let initialized = false;
+let refreshingPromise: Promise<string | null> | null = null;
 
 export const GoogleAuth = {
   isConfigured(): boolean {
@@ -51,7 +52,7 @@ export const GoogleAuth = {
     }
   },
 
-  /** True if the user connected a Google account at some point (token may be expired) */
+  /** True if the user connected a Google account at some point */
   isConnected(): boolean {
     return !!this.getStored();
   },
@@ -74,13 +75,6 @@ export const GoogleAuth = {
   /** Interactive login (must be called from a user tap/click) */
   async signIn(): Promise<StoredToken> {
     await this.init();
-
-    // Limpa estado residual anterior para permitir trocar ou reconectar a conta sem travar
-    try {
-      await SocialLogin.logout({ provider: 'google' });
-    } catch {
-      // Ignora erro de logout se não havia sessão
-    }
 
     let res: any;
     try {
@@ -129,36 +123,83 @@ export const GoogleAuth = {
   },
 
   /**
-   * Returns a valid access token, or null if the user needs to sign in again.
-   * On Android, tries to silently get a fresh token.
+   * Tenta renovar o token de acesso silenciosamente em segundo plano,
+   * sem abrir diálogos ou solicitar aprovação manual do usuário.
+   */
+  async refreshTokenSilently(): Promise<string | null> {
+    if (refreshingPromise) return refreshingPromise;
+
+    refreshingPromise = (async () => {
+      try {
+        await this.init();
+        const res: any = await SocialLogin.login({
+          provider: 'google',
+          options: {
+            scopes: [DRIVE_SCOPE]
+          }
+        });
+
+        const result: any = res?.result || res || {};
+        const token: string | undefined =
+          (typeof result?.accessToken === 'string' ? result.accessToken : result?.accessToken?.token) ||
+          (typeof result?.token === 'string' ? result.token : undefined) ||
+          (typeof result?.idToken === 'string' ? result.idToken : undefined);
+
+        if (token) {
+          let expiresAt: number | undefined;
+          const expiresVal = result?.accessToken?.expires || result?.expires;
+          if (expiresVal) {
+            const parsed = Date.parse(expiresVal);
+            if (!isNaN(parsed)) expiresAt = parsed - 60 * 1000;
+          }
+
+          this.saveToken(
+            token,
+            {
+              email: result?.profile?.email ?? undefined,
+              name: result?.profile?.name ?? undefined
+            },
+            expiresAt
+          );
+          console.log('[GoogleAuth] Token renovado silenciosamente com sucesso!');
+          return token;
+        }
+      } catch (err) {
+        console.warn('[GoogleAuth] Renovação silenciosa falhou:', err);
+      }
+      return null;
+    })().finally(() => {
+      refreshingPromise = null;
+    });
+
+    return refreshingPromise;
+  },
+
+  /**
+   * Retorna um token válido. Se expirado ou prestes a expirar,
+   * renova automaticamente e de forma transparente.
    */
   async getAccessToken(): Promise<string | null> {
     const stored = this.getStored();
     if (!stored) return null;
 
-    if (stored.expiresAt > Date.now()) {
+    // Se o token ainda tem mais de 3 minutos de validade, usa direto
+    if (stored.expiresAt > Date.now() + 3 * 60 * 1000) {
       return stored.token;
     }
 
-    // Token expired: try silent refresh on native platforms
-    if (Capacitor.isNativePlatform()) {
-      try {
-        await this.init();
-        const code = await SocialLogin.getAuthorizationCode({ provider: 'google' });
-        const newToken = (typeof code.accessToken === 'string' ? code.accessToken : (code as any).accessToken?.token);
-        if (newToken) {
-          this.saveToken(newToken);
-          return newToken;
-        }
-      } catch (err) {
-        console.warn('Falha ao renovar token Google silenciosamente:', err);
-      }
+    // Perto de expirar ou expirado: tenta renovar silenciosamente
+    const refreshed = await this.refreshTokenSilently();
+    if (refreshed) {
+      return refreshed;
     }
 
-    return null;
+    // Se a renovação silenciosa falhou por falta temporária de rede,
+    // ainda tenta usar o token existente como fallback
+    return stored.token || null;
   },
 
-  /** Marks the current token as invalid (e.g. after a 401 from the API) */
+  /** Marca o token como inválido caso uma reautenticação manual seja estritamente exigida */
   invalidateToken() {
     const stored = this.getStored();
     if (stored) {

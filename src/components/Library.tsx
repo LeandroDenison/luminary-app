@@ -19,7 +19,7 @@ import { FreeBooksCatalogModal } from './FreeBooksCatalogModal';
 import { DriveSyncModal } from './DriveSyncModal';
 import { BookCover } from './BookCover';
 import { StorageService } from '../services/storage';
-import { DriveSync, type SyncStatus } from '../services/driveSync';
+import { DriveSync, deduplicateAndMergeBooks, type SyncStatus } from '../services/driveSync';
 import { GoogleAuth } from '../services/googleAuth';
 import { LiveUpdater, CURRENT_APP_VERSION, type LiveUpdateStatus } from '../services/liveUpdater';
 import { CoverLoader } from '../services/coverLoader';
@@ -76,8 +76,9 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
     });
   };
 
-  // Auto-sanitiza livros com "Cópia de" ou prefixos herdados do Drive
+  // Auto-sanitiza livros com "Cópia de" e desduplica livros repetidos
   useEffect(() => {
+    if (books.length === 0) return;
     let changed = false;
     for (const b of books) {
       const { title, author } = cleanBookTitleAndAuthor(b.title, b.author);
@@ -86,7 +87,14 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
         StorageService.saveBook({ ...b, title, author }, undefined, { preserveTimestamp: true }).catch(() => {});
       }
     }
-    if (changed) {
+
+    if (books.length > 1) {
+      deduplicateAndMergeBooks(books).then((hadDups) => {
+        if (hadDups || changed) {
+          onRefreshBooks();
+        }
+      });
+    } else if (changed) {
       onRefreshBooks();
     }
   }, [books.length]);

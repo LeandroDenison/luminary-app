@@ -34,7 +34,7 @@ export interface ScannedCandidate {
   folderPath: string[];
 }
 
-async function driveFetch(url: string, init: RequestInit = {}): Promise<Response> {
+async function driveFetch(url: string, init: RequestInit = {}, retryCount = 0): Promise<Response> {
   const token = await GoogleAuth.getAccessToken();
   if (!token) throw new DriveAuthError();
 
@@ -47,6 +47,13 @@ async function driveFetch(url: string, init: RequestInit = {}): Promise<Response
   });
 
   if (res.status === 401) {
+    if (retryCount === 0) {
+      console.log('[DriveApi] 401 recebido. Tentando renovar token silenciosamente...');
+      const freshToken = await GoogleAuth.refreshTokenSilently();
+      if (freshToken) {
+        return driveFetch(url, init, retryCount + 1);
+      }
+    }
     GoogleAuth.invalidateToken();
     throw new DriveAuthError();
   }
