@@ -14,7 +14,7 @@
   * Branch `main`: Distribuição PWA / GitHub Pages e pacotes de atualização OTA.
 * **URL Pública (PWA / GitHub Pages):** `https://leandrodenison.github.io/luminary-app/`
 * **Instalador APK Direto:** `https://leandrodenison.github.io/luminary-app/LuminaryLeitor.apk`
-* **Versão Ativa Atual:** `v1.0.18` (Manifesto: `version.json`)
+* **Versão Ativa Atual:** `v1.0.19` (Manifesto: `version.json`)
 
 ---
 
@@ -48,9 +48,13 @@
 
 ---
 
-## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.18)
+## 4. 🚀 Funcionalidades Já Implementadas (Até v1.0.19)
 
 ### 📖 Leitor & Usabilidade
+0. **Catálogo Leve & Download Sob Demanda (v1.0.19):**
+   * **Sincronização Ultrarrápida:** Entrega a estante completa com título, autor, formato e série em poucos segundos, sem baixar gigabytes de arquivos pesados durante o sync.
+   * **Download 100% Sob Demanda:** O arquivo PDF/EPUB pesado só é baixado quando o usuário toca no livro para ler pela primeira vez, poupando a memória do celular e a internet móvel.
+   * **Banco de Dados em Nuvem (`biblioteca.json`):** Mantém o catálogo consolidado no Google Drive para sincronização quase instantânea entre celulares.
 1. **Tipografia Profissional:**
    * Fontes literárias integradas: **Literata** (Google), **Merriweather**, **Lora**, **Atkinson Hyperlegible** (acessibilidade) e **Inter**.
    * Sliders de ajuste de tamanho de fonte, altura de linha (espaçamento) e margens laterais.

@@ -8,8 +8,9 @@ import type { Book, BookFormat, DeletedEntry } from '../types';
 
 /**
  * Formato do arquivo `biblioteca.json` salvo no Drive.
- * Guarda os metadados de todos os livros (inclui capa em base64,
- * progresso, marcadores, tema...) e a lista de livros excluídos.
+ * Funciona como o banco de dados mestre na nuvem: guarda os metadados de
+ * todos os livros (título, autor, capa, progresso, marcadores, tema...)
+ * e a lista de livros excluídos, permitindo entrega instantânea da estante sem baixar os arquivos pesados.
  */
 interface RemoteLibrary {
   version: 1;
@@ -204,7 +205,7 @@ export const DriveSync = {
     try {
       const folder = await this.resolveFolder();
 
-      // ---- 1. Load remote library ----
+      // ---- 1. Load remote library (banco de dados leve na nuvem) ----
       const libraryFile = await DriveApi.findChild(folder.rootId, LIBRARY_FILE_NAME);
       let remote: RemoteLibrary = { version: 1, updatedAt: 0, books: {}, deleted: {} };
       if (libraryFile) {
@@ -223,7 +224,7 @@ export const DriveSync = {
         if (!deleted[id] || deleted[id].at < entry.at) deleted[id] = entry;
       }
 
-      // ---- 3. Merge books (newest updatedAt wins) ----
+      // ---- 3. Merge books (newest updatedAt wins) - Instantâneo, apenas metadados! ----
       const localBooks = await StorageService.getAllBooks();
       const localMap = new Map(localBooks.map((b) => [b.id, b]));
       const merged: Record<string, Book> = {};
@@ -254,7 +255,7 @@ export const DriveSync = {
           winner = { ...(local || rem)! };
         }
 
-        // Apply remote changes locally
+        // Apply remote changes locally (apenas metadados, zero downloads pesados)
         if (!local || JSON.stringify(local) !== JSON.stringify(winner)) {
           await StorageService.saveBook(winner, undefined, { preserveTimestamp: true });
           result.updatedLocal++;
@@ -262,7 +263,7 @@ export const DriveSync = {
         merged[id] = winner;
       }
 
-      // ---- 4. Upload book files that are not on the Drive yet ----
+      // ---- 4. Upload book files that are not on the Drive yet (apenas se adicionados localmente via importador) ----
       for (const book of Object.values(merged)) {
         if (book.driveFileId) continue;
         const file = await StorageService.getBookFile(book.id);
@@ -290,7 +291,7 @@ export const DriveSync = {
         }
       }
 
-      // ---- 6. Import PDFs/EPUBs added manually to the Drive folder and all subfolders ----
+      // ---- 6. Catalog PDFs/EPUBs found in Drive and subfolders (ULTRA RÁPIDO: SEM BAIXAR ARQUIVOS PESADOS) ----
       const knownFileIds = new Set(Object.values(merged).map((b) => b.driveFileId).filter(Boolean));
       const deletedFileIds = new Set(Object.values(deleted).map((d) => d.driveFileId).filter(Boolean));
       
@@ -300,24 +301,29 @@ export const DriveSync = {
         { id: folder.rootId, name: ROOT_FOLDER_NAME, path: [] }
       ]);
 
+      let newCatalogCount = 0;
       for (const { file, folderPath } of candidates) {
         const format = formatFromFile(file);
         if (!format || knownFileIds.has(file.id) || deletedFileIds.has(file.id)) continue;
 
-        setStatus('syncing', `Importando "${file.name}" do Drive...`);
         try {
-          const data = await DriveApi.downloadFile(file.id);
-          const book = await buildBookFromFile(file, format, data, folderPath);
-          await StorageService.saveBook(book, data, { preserveTimestamp: true });
+          // Catalogação leve e instantânea: entrega a estante imediatamente
+          const book = buildBookMetadataFromFile(file, format, folderPath);
+          await StorageService.saveBook(book, undefined, { preserveTimestamp: true });
           merged[book.id] = book;
           knownFileIds.add(file.id);
           result.imported++;
+          newCatalogCount++;
         } catch (err) {
-          console.warn(`Não foi possível importar ${file.name}:`, err);
+          console.warn(`Não foi possível catalogar ${file.name}:`, err);
         }
       }
 
-      // ---- 7. Save merged state locally and on the Drive ----
+      if (newCatalogCount > 0) {
+        setStatus('syncing', `Catalogados ${newCatalogCount} novos livros na estante...`);
+      }
+
+      // ---- 7. Save merged state locally and on the Drive (atualiza o banco biblioteca.json) ----
       await StorageService.setDeletedBooks(deleted);
       const newRemote: RemoteLibrary = { version: 1, updatedAt: Date.now(), books: merged, deleted };
       const json = JSON.stringify(newRemote);
@@ -341,7 +347,7 @@ export const DriveSync = {
     }
   },
 
-  /** Downloads a book file from the Drive when it's not available on this device */
+  /** Downloads a book file from the Drive on-demand (apenas quando o leitor for aberto) */
   async downloadBookFile(book: Book): Promise<ArrayBuffer> {
     if (!book.driveFileId) throw new Error('Este livro não está no Google Drive.');
     const data = await DriveApi.downloadFile(book.driveFileId);
@@ -362,71 +368,42 @@ export const DriveSync = {
   }
 };
 
-async function buildBookFromFile(
+/**
+ * Cria o livro de forma instantânea a partir de metadados leves (sem baixar o arquivo binário pesado).
+ * Identifica título limpo, autor e série a partir da estrutura de pastas.
+ */
+function buildBookMetadataFromFile(
   file: DriveFile,
   format: BookFormat,
-  data: ArrayBuffer,
   folderPath: string[] = []
-): Promise<Book> {
-  let title = file.name.replace(/\.(pdf|epub)$/i, '');
-  let author = 'Autor desconhecido';
-  let coverUrl: string | undefined;
-  let totalPages: number | undefined;
-  let description: string | undefined;
-
-  if (format === 'pdf') {
-    const meta = await parsePdfFile(data.slice(0));
-    if (meta.title && meta.title !== 'Documento PDF') title = meta.title;
-    if (meta.author && meta.author !== 'Desconhecido') author = meta.author;
-    coverUrl = meta.coverDataUrl;
-    totalPages = meta.totalPages;
-  } else {
-    const meta = await parseEpubFile(data.slice(0));
-    if (meta.title && meta.title !== 'Livro EPUB') title = meta.title;
-    if (meta.author && meta.author !== 'Autor Desconhecido') author = meta.author;
-    coverUrl = meta.coverDataUrl;
-    description = meta.description;
-  }
-
-  // Extrai autor e série inferidos da estrutura de pastas
+): Book {
+  const rawName = file.name.replace(/\.(pdf|epub)$/i, '');
   const folderMeta = extractMetadataFromFolderPath(folderPath);
 
-  // Se o autor não foi detectado no arquivo, tenta o autor da pasta
-  const isAuthorUnknown = !author || /desconhecido/i.test(author);
-  if (isAuthorUnknown && folderMeta.author) {
-    author = folderMeta.author;
-  }
+  // Limpa o nome do arquivo, usando o autor da pasta se disponível
+  const cleaned = cleanBookTitleAndAuthor(rawName, folderMeta.author);
+  let title = cleaned.title;
+  let author = cleaned.author;
 
-  // Remove prefixos automáticos como "Cópia de " e formata título/autor
-  const cleaned = cleanBookTitleAndAuthor(title, author);
-  title = cleaned.title;
-  author = cleaned.author;
-
-  // Se mesmo após a limpeza ainda estiver como desconhecido, garante o autor da pasta
   if ((!author || /desconhecido/i.test(author)) && folderMeta.author) {
     author = folderMeta.author;
   }
 
-  // Se detectou série a partir da subpasta, enriquece a descrição
+  let description: string | undefined;
   if (folderMeta.series) {
-    if (!description) {
-      description = `Série: ${folderMeta.series}`;
-    } else if (!description.toLowerCase().includes(folderMeta.series.toLowerCase())) {
-      description = `${description}\n\nSérie: ${folderMeta.series}`;
-    }
+    description = `Série: ${folderMeta.series}`;
   }
 
   const now = Date.now();
   return {
     id: `drive-${file.id}`,
     title,
-    author,
+    author: author || 'Autor desconhecido',
     format,
-    coverUrl,
+    coverUrl: file.thumbnailLink || undefined,
     addedAt: now,
     updatedAt: now,
-    fileSize: Number(file.size) || data.byteLength,
-    totalPages,
+    fileSize: Number(file.size) || 0,
     progress: 0,
     readingMode: 'paginated',
     theme: 'sepia',
@@ -435,4 +412,30 @@ async function buildBookFromFile(
     description,
     driveFileId: file.id
   };
+}
+
+/**
+ * Usado sob demanda quando o arquivo for baixado para enriquecer capa e total de páginas
+ */
+export async function enrichBookFromFile(book: Book, data: ArrayBuffer): Promise<Partial<Book>> {
+  try {
+    let coverUrl = book.coverUrl;
+    let totalPages = book.totalPages;
+    let description = book.description;
+
+    if (book.format === 'pdf') {
+      const meta = await parsePdfFile(data.slice(0));
+      if (meta.coverDataUrl) coverUrl = meta.coverDataUrl;
+      if (meta.totalPages) totalPages = meta.totalPages;
+    } else {
+      const meta = await parseEpubFile(data.slice(0));
+      if (meta.coverDataUrl) coverUrl = meta.coverDataUrl;
+      if (meta.description && !description) description = meta.description;
+    }
+
+    return { coverUrl, totalPages, description };
+  } catch (err) {
+    console.warn('Erro ao enriquecer metadados do livro:', err);
+    return {};
+  }
 }

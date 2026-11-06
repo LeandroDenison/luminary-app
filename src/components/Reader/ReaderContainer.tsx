@@ -6,7 +6,7 @@ import { ReaderSettingsModal } from './ReaderSettingsModal';
 import { TableOfContentsModal } from './TableOfContentsModal';
 import { QuoteCardModal } from './QuoteCardModal';
 import { StorageService } from '../../services/storage';
-import { DriveSync } from '../../services/driveSync';
+import { DriveSync, enrichBookFromFile } from '../../services/driveSync';
 import { DriveAuthError } from '../../services/driveApi';
 import { ScreenHelper } from '../../services/screenHelper';
 import type { Book, ReadingMode, ReaderTheme, Bookmark, ReaderFontFamily, ReaderLineHeight, ReaderMarginSize, PdfDisplayMode } from '../../types';
@@ -20,6 +20,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
   const [fileData, setFileData] = useState<ArrayBuffer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMessage, setLoadingMessage] = useState<string>("Carregando livro...");
 
   // Reader state
   const [readingMode, setReadingMode] = useState<ReadingMode>(book.readingMode || 'paginated');
@@ -140,10 +141,12 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
     let active = true;
     const load = async () => {
       setLoading(true);
+      setLoadingMessage('Carregando livro...');
       try {
         let data = await StorageService.getBookFile(book.id);
         if (!data && book.driveFileId) {
-          // Book synced from another device: download it from Google Drive now
+          // Livro leve sob demanda: baixa apenas agora que o usuário abriu
+          setLoadingMessage('Baixando livro do Google Drive...');
           try {
             data = await DriveSync.downloadBookFile(book);
           } catch (driveErr: any) {
@@ -157,13 +160,29 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
         if (!data) {
           throw new Error('Arquivo do livro não encontrado no armazenamento local.');
         }
+
+        setLoadingMessage('Abrindo leitor...');
+        const buf = data instanceof Blob ? await data.arrayBuffer() : data;
+
+        // Se o livro ainda não tem capa oficial ou total de páginas, enriquece em background
+        if (!book.coverUrl || !book.totalPages) {
+          enrichBookFromFile(book, buf.slice(0)).then(async (enriched) => {
+            if (enriched.coverUrl || enriched.totalPages) {
+              await StorageService.saveBook(
+                {
+                  ...book,
+                  ...(enriched.coverUrl ? { coverUrl: enriched.coverUrl } : {}),
+                  ...(enriched.totalPages ? { totalPages: enriched.totalPages } : {})
+                },
+                undefined,
+                { preserveTimestamp: true }
+              );
+            }
+          }).catch(() => {});
+        }
+
         if (active) {
-          if (data instanceof Blob) {
-            const buf = await data.arrayBuffer();
-            setFileData(buf);
-          } else {
-            setFileData(data);
-          }
+          setFileData(buf);
           setLoading(false);
         }
       } catch (err: any) {
@@ -178,7 +197,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
     return () => {
       active = false;
     };
-  }, [book.id]);
+  }, [book.id, book.driveFileId]);
 
   // Handle PDF page changes
   const handlePdfPageChange = (newPage: number, total: number) => {
@@ -450,7 +469,7 @@ export const ReaderContainer: React.FC<ReaderContainerProps> = ({ book, onBack }
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
             <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm">Carregando livro...</p>
+            <p className="text-sm font-medium">{loadingMessage}</p>
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center text-rose-400">

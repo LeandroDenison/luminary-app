@@ -25,6 +25,8 @@ export interface DriveFile {
   ownedByMe?: boolean;
   owners?: { emailAddress?: string; displayName?: string }[];
   parents?: string[];
+  thumbnailLink?: string;
+  hasThumbnail?: boolean;
 }
 
 export interface ScannedCandidate {
@@ -59,7 +61,7 @@ function escapeQuery(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,ownedByMe,owners(emailAddress,displayName),parents';
+const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,ownedByMe,owners(emailAddress,displayName),parents,thumbnailLink,hasThumbnail';
 
 export const DriveApi = {
   async getUser(): Promise<{ email: string; name: string }> {
