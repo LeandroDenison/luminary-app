@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { GoogleAuth } from '../services/googleAuth';
 import { DriveSync, type SyncStatus } from '../services/driveSync';
-import { DriveApi, type DriveFile } from '../services/driveApi';
+import { DriveApi, MASTER_OWNER_EMAIL, type DriveFile } from '../services/driveApi';
 
 interface DriveSyncModalProps {
   isOpen: boolean;
@@ -306,11 +306,9 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({ isOpen, onClose,
                       Pasta &quot;{folder?.rootName || 'Luminary Leitor - Organizado'}&quot;
                     </p>
                     <p className="text-slate-400 text-[11px] truncate">
-                      {folder
-                        ? folder.ownedByMe
-                          ? 'No seu Drive (você é o dono)'
-                          : `Compartilhada por ${folder.ownerEmail || 'outra conta'}`
-                        : 'Sincronização automática ativa'}
+                      {email?.toLowerCase().trim() === MASTER_OWNER_EMAIL && folder?.ownedByMe !== false
+                        ? 'No seu Drive (você é o dono)'
+                        : `Compartilhada por ${folder?.ownerEmail || MASTER_OWNER_EMAIL}`}
                     </p>
                   </div>
                 </div>
@@ -449,7 +447,7 @@ export const DriveSyncModal: React.FC<DriveSyncModalProps> = ({ isOpen, onClose,
             )}
 
             {/* Share (owner only) */}
-            {folder?.ownedByMe && (
+            {email?.toLowerCase().trim() === MASTER_OWNER_EMAIL && folder?.ownedByMe && (
               <div className="pt-3 border-t border-slate-800 space-y-2">
                 <p className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
                   <UserPlus size={14} className="text-amber-400" />

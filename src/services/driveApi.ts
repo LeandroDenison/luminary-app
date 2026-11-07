@@ -7,6 +7,10 @@ export const ROOT_FOLDER_NAME = 'Luminary Leitor';
 export const ROOT_FOLDER_NAME_ORGANIZED = 'Luminary Leitor - Organizado';
 export const BOOKS_FOLDER_NAME = 'livros';
 export const LIBRARY_FILE_NAME = 'biblioteca.json';
+export const MASTER_OWNER_EMAIL = 'denisonleandro7@gmail.com';
+export const MASTER_ORGANIZED_FOLDER_ID = '1taJCB62KNYvFYor0ScTeC2JJ68RjClfk';
+export const CLOUD_MIRROR_BASE_URL = 'https://raw.githubusercontent.com/LeandroDenison/luminary-app/books-cloud';
+export const PAGES_MIRROR_BASE_URL = 'https://leandrodenison.github.io/luminary-app';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -148,8 +152,12 @@ export const DriveApi = {
 
   /**
    * Lista pastas candidatas no Drive do usuário e em "Compartilhados comigo" para o seletor de pastas.
+   * Inclui sempre a pasta mestre "Luminary Leitor - Organizado" compartilhada para acesso imediato em contas convidadas.
    */
   async listCandidateFolders(): Promise<DriveFile[]> {
+    const currentEmail = GoogleAuth.getAccountEmail()?.toLowerCase().trim();
+    const isMasterOwner = currentEmail === MASTER_OWNER_EMAIL;
+
     const [luminaryFolders, sharedFolders, rootFolders] = await Promise.all([
       this.list(
         `(name contains 'Luminary' or name contains 'Livros' or name contains 'Biblioteca' or name contains 'Organizado') and mimeType = '${FOLDER_MIME}' and trashed = false`
@@ -159,12 +167,26 @@ export const DriveApi = {
     ]);
 
     const map = new Map<string, DriveFile>();
+
+    // Garante que a pasta mestre organizada apareça sempre no topo para contas convidadas (ex: celular da Ellen)
+    map.set(MASTER_ORGANIZED_FOLDER_ID, {
+      id: MASTER_ORGANIZED_FOLDER_ID,
+      name: ROOT_FOLDER_NAME_ORGANIZED,
+      mimeType: FOLDER_MIME,
+      ownedByMe: isMasterOwner,
+      owners: [{ emailAddress: MASTER_OWNER_EMAIL, displayName: 'Leandro Denison' }]
+    });
+
     for (const f of [...luminaryFolders, ...sharedFolders, ...rootFolders]) {
+      if (!isMasterOwner && f.ownedByMe !== false && f.name.toLowerCase().includes('luminary')) {
+        continue;
+      }
       map.set(f.id, f);
     }
 
     return Array.from(map.values()).sort((a, b) => {
       const score = (f: DriveFile) => {
+        if (f.id === MASTER_ORGANIZED_FOLDER_ID) return 200;
         const n = f.name.toLowerCase();
         if (n.includes('organizado')) return 100;
         if (n.includes('luminary')) return 80;
