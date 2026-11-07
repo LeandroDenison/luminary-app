@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { X, BookOpen, Trash2, CheckCircle2, Pencil, Check, Archive, ArchiveRestore, Quote, Sparkles, Layers } from 'lucide-react';
+import {
+  X,
+  BookOpen,
+  Trash2,
+  CheckCircle2,
+  Pencil,
+  Check,
+  Archive,
+  ArchiveRestore,
+  Quote,
+  Sparkles,
+  Layers,
+  Bookmark,
+  BookmarkCheck
+} from 'lucide-react';
 import { BookCover } from './BookCover';
 import { QuoteCardModal } from './Reader/QuoteCardModal';
 import { cleanBookTitleAndAuthor } from '../utils/textCleaner';
@@ -81,22 +95,36 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
     }
   };
 
+  const handleToggleReadLater = () => {
+    if (!onUpdate) return;
+    onUpdate({
+      ...book,
+      isReadLater: !book.isReadLater,
+      updatedAt: Date.now()
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
       <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl text-slate-100 flex flex-col gap-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-xs font-mono uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-md font-bold">
               {book.format.toUpperCase()}
             </span>
+            {book.isReadLater && (
+              <span className="text-[10px] font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
+                <BookmarkCheck size={11} /> Ler Depois
+              </span>
+            )}
             {book.isArchived && (
               <span className="text-[10px] font-medium uppercase bg-slate-800 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
                 <Archive size={11} /> Arquivado
               </span>
             )}
             {book.series && (
-              <span className="text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 truncate max-w-[150px]">
+              <span className="text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 truncate max-w-[140px]">
                 <Layers size={10} />
                 <span className="truncate">{book.series}</span>
                 {book.volume && <span>#{book.volume}</span>}
@@ -105,7 +133,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+            className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer shrink-0"
           >
             <X size={20} />
           </button>
@@ -206,7 +234,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                   </div>
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors shrink-0"
+                    className="p-1 text-slate-400 hover:text-amber-400 transition-colors shrink-0 cursor-pointer"
                     title="Editar informações"
                   >
                     <Pencil size={13} />
@@ -214,16 +242,31 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">{book.author}</p>
 
-                {/* Botão Buscar dados na Web */}
-                <button
-                  onClick={handleSearchWeb}
-                  disabled={isSearchingWeb}
-                  className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
-                  title="Buscar autor oficial, capa em alta resolução e sinopse na web"
-                >
-                  <Sparkles size={12} className={isSearchingWeb ? 'animate-spin' : 'text-amber-400'} />
-                  <span>{isSearchingWeb ? 'Buscando na Web...' : 'Completar Dados na Web'}</span>
-                </button>
+                {/* Botões Rápidos: Ler Depois + Completar Dados na Web */}
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <button
+                    onClick={handleToggleReadLater}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
+                      book.isReadLater
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        : 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 border-slate-700'
+                    }`}
+                    title={book.isReadLater ? 'Remover da lista Ler Depois' : 'Salvar na lista Ler Depois'}
+                  >
+                    {book.isReadLater ? <BookmarkCheck size={12} className="text-sky-400" /> : <Bookmark size={12} />}
+                    <span>{book.isReadLater ? 'Salvo p/ Ler Depois' : 'Ler Depois'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleSearchWeb}
+                    disabled={isSearchingWeb}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+                    title="Buscar autor oficial, capa em alta resolução e sinopse na web"
+                  >
+                    <Sparkles size={12} className={isSearchingWeb ? 'animate-spin' : 'text-amber-400'} />
+                    <span>{isSearchingWeb ? 'Buscando...' : 'Dados Web'}</span>
+                  </button>
+                </div>
 
                 <div className="mt-3 flex items-center gap-2">
                   <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -273,7 +316,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
         {/* Description if any */}
         {book.description && (
           <p className="text-xs text-slate-400 line-clamp-3 italic">
-            "{book.description}"
+            &quot;{book.description}&quot;
           </p>
         )}
 
@@ -288,6 +331,19 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
           >
             <BookOpen size={18} />
             <span>{book.progress > 0 ? 'Continuar Leitura' : 'Começar a Ler'}</span>
+          </button>
+
+          {/* Botão de Salvar para Ler Depois */}
+          <button
+            onClick={handleToggleReadLater}
+            className={`p-3 rounded-xl border transition-all cursor-pointer ${
+              book.isReadLater
+                ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'
+                : 'bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-sky-300 border-slate-700/60'
+            }`}
+            title={book.isReadLater ? 'Remover de Ler Depois' : 'Salvar para Ler Depois'}
+          >
+            {book.isReadLater ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
           </button>
 
           {/* Botão de Arquivar / Desarquivar */}

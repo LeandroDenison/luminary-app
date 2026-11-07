@@ -12,7 +12,9 @@ import {
   RefreshCw,
   X,
   Archive,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Bookmark,
+  BookmarkCheck
 } from 'lucide-react';
 import { BookDetailModal } from './BookDetailModal';
 import { FreeBooksCatalogModal } from './FreeBooksCatalogModal';
@@ -37,7 +39,7 @@ interface LibraryProps {
   onRefreshBooks: () => void;
 }
 
-type FilterType = 'all' | 'reading' | 'completed' | 'pdf' | 'epub' | 'archived';
+type FilterType = 'all' | 'reading' | 'read-later' | 'completed' | 'pdf' | 'epub' | 'archived';
 
 export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBooks }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -157,10 +159,22 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
     refreshAndSync();
   };
 
+  const handleQuickToggleReadLater = async (e: React.MouseEvent, book: Book) => {
+    e.stopPropagation();
+    const updated: Book = {
+      ...book,
+      isReadLater: !book.isReadLater,
+      updatedAt: Date.now()
+    };
+    await StorageService.saveBook(updated, undefined, { preserveTimestamp: true });
+    refreshAndSync();
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const archivedCount = books.filter((b) => b.isArchived).length;
   const activeBooks = useMemo(() => books.filter((b) => !b.isArchived), [books]);
+  const readLaterCount = useMemo(() => activeBooks.filter((b) => b.isReadLater).length, [activeBooks]);
 
   // Lista dinâmica de autores com contagem de livros (exclui termos que são séries ou títulos)
   const authorCounts = useMemo(() => {
@@ -212,6 +226,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
       }
 
       if (activeFilter === 'reading') return book.progress > 0 && book.progress < 100;
+      if (activeFilter === 'read-later') return Boolean(book.isReadLater);
       if (activeFilter === 'completed') return book.progress >= 100;
       if (activeFilter === 'pdf') return book.format === 'pdf';
       if (activeFilter === 'epub') return book.format === 'epub';
@@ -348,7 +363,13 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             <div className="min-w-0">
               <h1 className="text-base font-bold tracking-tight text-white m-0 truncate">Minha Biblioteca</h1>
               <p className="text-[11px] text-slate-400 font-medium m-0 flex items-center gap-1.5 truncate">
-                <span>{activeFilter === 'archived' ? `${archivedCount} arquivados` : `${activeBooks.length} ${activeBooks.length === 1 ? 'livro' : 'livros'}`}</span>
+                <span>
+                  {activeFilter === 'archived'
+                    ? `${archivedCount} arquivados`
+                    : activeFilter === 'read-later'
+                    ? `${readLaterCount} para ler depois`
+                    : `${activeBooks.length} ${activeBooks.length === 1 ? 'livro' : 'livros'}`}
+                </span>
                 {liveUpdateStatus === 'downloading' ? (
                   <span className="text-amber-400 flex items-center gap-1 font-semibold">
                     <RefreshCw size={10} className="animate-spin shrink-0" /> Baixando OTA...
@@ -521,6 +542,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
           {[
             { id: 'all' as const, label: 'Todos' },
             { id: 'reading' as const, label: 'Lendo' },
+            { id: 'read-later' as const, label: readLaterCount > 0 ? `Ler Depois (${readLaterCount})` : 'Ler Depois' },
             { id: 'completed' as const, label: 'Concluídos' },
             { id: 'pdf' as const, label: 'PDFs' },
             { id: 'epub' as const, label: 'EPUBs' },
@@ -535,6 +557,9 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                   : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800/80'
               }`}
             >
+              {f.id === 'read-later' && (
+                <Bookmark size={11} className={activeFilter === f.id ? 'text-slate-950' : 'text-sky-400'} />
+              )}
               {f.id === 'archived' && (
                 <Archive size={11} className={activeFilter === f.id ? 'text-slate-950' : 'text-slate-400'} />
               )}
@@ -623,6 +648,8 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 m-0">
               {activeFilter === 'all' && !isFilterActive
                 ? 'Todos os Livros'
+                : activeFilter === 'read-later'
+                ? `Salvos para Ler Depois (${filteredBooks.length})`
                 : activeFilter === 'archived'
                 ? `Livros Arquivados (${filteredBooks.length})`
                 : `Livros (${filteredBooks.length})`}
@@ -632,15 +659,27 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
           {filteredBooks.length === 0 ? (
             <div className="py-12 px-4 text-center rounded-2xl border border-dashed border-slate-800 flex flex-col items-center justify-center gap-3 text-slate-500">
               <div className="p-3 bg-slate-900 rounded-full text-slate-400">
-                {activeFilter === 'archived' ? <Archive size={24} /> : <Upload size={24} />}
+                {activeFilter === 'archived' ? (
+                  <Archive size={24} />
+                ) : activeFilter === 'read-later' ? (
+                  <Bookmark size={24} />
+                ) : (
+                  <Upload size={24} />
+                )}
               </div>
               <div>
                 <p className="text-sm font-medium text-slate-300">
-                  {activeFilter === 'archived' ? 'Nenhum livro arquivado' : 'Nenhum livro encontrado'}
+                  {activeFilter === 'archived'
+                    ? 'Nenhum livro arquivado'
+                    : activeFilter === 'read-later'
+                    ? 'Sua lista "Ler Depois" está vazia'
+                    : 'Nenhum livro encontrado'}
                 </p>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
                   {activeFilter === 'archived'
                     ? 'Para ocultar títulos da estante principal, abra os detalhes do livro e toque no ícone de arquivar.'
+                    : activeFilter === 'read-later'
+                    ? 'Toque no ícone de marcador no canto superior direito de qualquer livro para salvá-lo para ler depois.'
                     : isFilterActive
                     ? 'Nenhum livro corresponde aos filtros selecionados. Tente limpar os filtros de autor ou série.'
                     : 'Importe arquivos PDF ou EPUB pelo botão acima ou explore clássicos grátis!'}
@@ -658,7 +697,7 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                 >
                   Limpar todos os filtros
                 </button>
-              ) : activeFilter !== 'archived' ? (
+              ) : activeFilter !== 'archived' && activeFilter !== 'read-later' ? (
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="mt-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium transition-colors cursor-pointer"
@@ -700,17 +739,28 @@ export const Library: React.FC<LibraryProps> = ({ books, onOpenBook, onRefreshBo
                       </span>
                     )}
 
-                    {/* Archived badge or Finished indicator */}
+                    {/* Top-right indicator / Quick Read Later toggle */}
                     {book.isArchived ? (
                       <span className="absolute top-1.5 right-1.5 text-[9px] font-semibold bg-amber-500/90 text-slate-950 px-1.5 py-0.5 rounded-md flex items-center gap-0.5 shadow-md">
                         <Archive size={10} /> Arquivado
                       </span>
+                    ) : book.progress >= 100 ? (
+                      <div className="absolute top-1.5 right-1.5 bg-emerald-500 text-slate-950 p-1 rounded-full shadow-md">
+                        <CheckCircle size={12} />
+                      </div>
                     ) : (
-                      book.progress >= 100 && (
-                        <div className="absolute top-1.5 right-1.5 bg-emerald-500 text-slate-950 p-1 rounded-full shadow-md">
-                          <CheckCircle size={12} />
-                        </div>
-                      )
+                      <button
+                        type="button"
+                        onClick={(e) => handleQuickToggleReadLater(e, book)}
+                        className={`absolute top-1.5 right-1.5 p-1.5 rounded-lg backdrop-blur-xs border transition-all shadow-md cursor-pointer ${
+                          book.isReadLater
+                            ? 'bg-sky-500 text-slate-950 border-sky-300'
+                            : 'bg-black/65 hover:bg-black/85 text-slate-200 border-white/15 opacity-85 hover:opacity-100'
+                        }`}
+                        title={book.isReadLater ? 'Salvo em Ler Depois (toque para remover)' : 'Salvar para Ler Depois'}
+                      >
+                        {book.isReadLater ? <BookmarkCheck size={12} /> : <Bookmark size={12} />}
+                      </button>
                     )}
 
                     {/* Progress Bar overlay at bottom of cover */}

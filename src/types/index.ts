@@ -44,6 +44,8 @@ export interface Book {
   series?: string;
   /** Número do volume na série (ex: "1", "2", "02") */
   volume?: string;
+  /** Se o livro está salvo na lista "Ler Depois" (Quero Ler) */
+  isReadLater?: boolean;
   /** Se o livro está arquivado / oculto da estante principal */
   isArchived?: boolean;
   /** Última modificação dos metadados (usado na sincronização com o Drive) */

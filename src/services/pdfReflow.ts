@@ -13,16 +13,72 @@ export interface PageReflowData {
   rawText: string;
 }
 
+interface SpanItem {
+  x: number;
+  endX: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  str: string;
+}
+
 interface RawLine {
   y: number;
   x: number;
+  endX: number;
   height: number;
   maxFontSize: number;
   text: string;
+  spans: SpanItem[];
 }
 
 // Memory cache for parsed reflow pages: Map<`${docFingerprint}_${pageNum}`, PageReflowData>
 const reflowCache = new Map<string, PageReflowData>();
+
+/**
+ * Junta fragmentos horizontais de uma mesma linha respeitando o espaçamento real (kerning vs espaço entre palavras).
+ * Evita que palavras fatiadas pelo PDF (ex: "C" + "ap" + "ítulo") fiquem separadas ("C ap ítulo").
+ */
+function joinLineSpans(spans: SpanItem[]): string {
+  if (spans.length === 0) return '';
+  const sorted = [...spans].sort((a, b) => a.x - b.x);
+
+  let result = '';
+  let prev: SpanItem | null = null;
+
+  for (const span of sorted) {
+    const str = span.str;
+    if (!str) continue;
+
+    if (!prev) {
+      result = str;
+      prev = span;
+      continue;
+    }
+
+    const gap = span.x - prev.endX;
+    const avgFont = (prev.fontSize + span.fontSize) / 2 || 12;
+
+    const alreadyHasSpace = result.endsWith(' ') || str.startsWith(' ');
+    const isPunctuation = /^[,.:;!?)\]}»”’]/.test(str);
+    const afterOpenBracket = /[(\[{«“‘]$/.test(result);
+
+    // Só insere espaço se houver distância horizontal real de espaço entre palavras (> 15% do tamanho da fonte)
+    if (!alreadyHasSpace && !isPunctuation && !afterOpenBracket && gap > avgFont * 0.15) {
+      result += ' ' + str;
+    } else {
+      result += str;
+    }
+
+    prev = {
+      ...span,
+      endX: Math.max(prev.endX, span.endX)
+    };
+  }
+
+  return result.replace(/\s+/g, ' ').trim();
+}
 
 /**
  * Extracts and formats structured, readable reflow text from a PDF page proxy.
@@ -31,7 +87,7 @@ export async function extractPageReflow(
   page: PDFPageProxy,
   docKey: string = 'default'
 ): Promise<PageReflowData> {
-  const cacheKey = `${docKey}_${page.pageNumber}`;
+  const cacheKey = `${docKey}_v2_${page.pageNumber}`;
   if (reflowCache.has(cacheKey)) {
     return reflowCache.get(cacheKey)!;
   }
@@ -56,74 +112,76 @@ export async function extractPageReflow(
 
     // 1. Group text items into lines based on baseline Y
     const lineBuckets: RawLine[] = [];
-    const Y_EPSILON = 3.5;
+    const Y_EPSILON = 3.2;
 
     for (const item of items) {
       if (!item.str || typeof item.str !== 'string') continue;
       const str = item.str;
       if (!str.trim() && str.length === 0) continue;
 
-      const tx = item.transform[4];
-      const ty = item.transform[5];
-      // Font size approximation from scale matrix
-      const fontSize = Math.abs(item.transform[0]) || Math.abs(item.transform[3]) || 12;
+      const tx = Number(item.transform?.[4]) || 0;
+      const ty = Number(item.transform?.[5]) || 0;
+      const fontSize = Math.abs(item.transform?.[0]) || Math.abs(item.transform?.[3]) || 12;
+      const width = Number(item.width) > 0 ? Number(item.width) : str.length * fontSize * 0.48;
 
-      // Find an existing bucket with close Y
+      const span: SpanItem = {
+        x: tx,
+        endX: tx + width,
+        y: ty,
+        width,
+        height: item.height || fontSize,
+        fontSize,
+        str
+      };
+
       let bucket = lineBuckets.find((b) => Math.abs(b.y - ty) <= Y_EPSILON);
       if (!bucket) {
         bucket = {
           y: ty,
           x: tx,
-          height: item.height || fontSize,
+          endX: tx + width,
+          height: span.height,
           maxFontSize: fontSize,
-          text: ''
+          text: '',
+          spans: [span]
         };
         lineBuckets.push(bucket);
       } else {
         bucket.maxFontSize = Math.max(bucket.maxFontSize, fontSize);
         bucket.x = Math.min(bucket.x, tx);
-      }
-
-      // Append text
-      if (bucket.text.length > 0 && !bucket.text.endsWith(' ') && !str.startsWith(' ') && !/^[,.:;!?)]/.test(str)) {
-        bucket.text += ' ' + str;
-      } else {
-        bucket.text += str;
+        bucket.endX = Math.max(bucket.endX, tx + width);
+        bucket.spans.push(span);
       }
     }
 
     // 2. Sort lines top-to-bottom (descending Y in PDF coordinates)
     lineBuckets.sort((a, b) => b.y - a.y);
 
-    // 3. Clean up lines and strip running header / footer lines
+    // 3. Join spans per line and strip running header / footer lines
     const cleanedLines: RawLine[] = [];
     for (const line of lineBuckets) {
-      const trimmed = line.text.trim();
-      if (!trimmed) continue;
+      const joined = joinLineSpans(line.spans);
+      if (!joined) continue;
 
-      // Check if it's likely a running header (top 5% of page) or footer (bottom 5% of page)
       const distanceFromTop = pageHeight - line.y;
-      const isTopMargin = distanceFromTop < pageHeight * 0.055;
-      const isBottomMargin = line.y < pageHeight * 0.055;
+      const isTopMargin = distanceFromTop < pageHeight * 0.06;
+      const isBottomMargin = line.y < pageHeight * 0.06;
 
-      // Header/footer heuristics: isolated numbers or short titles like "Página X"
       if (isTopMargin || isBottomMargin) {
-        if (/^(?:p[aá]g(?:ina)?\.?\s*)?\d+(?:\s*(?:de|\/)\s*\d+)?$/i.test(trimmed)) {
-          // Page number, skip from flow
+        if (/^(?:p[aá]g(?:ina)?\.?\s*)?\d+(?:\s*(?:de|\/)\s*\d+)?$/i.test(joined)) {
           continue;
         }
-        if (/^[—–-]\s*\d+\s*[—–-]$/.test(trimmed)) {
+        if (/^[—–-]\s*\d+\s*[—–-]$/.test(joined)) {
           continue;
         }
-        if (trimmed.length < 30 && (isTopMargin || isBottomMargin)) {
-          // Running book title or header, ignore in reflow
+        if (joined.length < 35 && (isTopMargin || isBottomMargin)) {
           continue;
         }
       }
 
       cleanedLines.push({
         ...line,
-        text: trimmed
+        text: joined
       });
     }
 
@@ -138,11 +196,18 @@ export async function extractPageReflow(
       return emptyResult;
     }
 
-    // 4. Calculate typical body font size (median)
+    // 4. Calculate typical body font size, left margin, right margin, and line gap
     const fontSizes = cleanedLines.map((l) => l.maxFontSize).sort((a, b) => a - b);
     const medianFontSize = fontSizes[Math.floor(fontSizes.length / 2)] || 12;
 
-    // 5. Calculate typical line gap (median)
+    const xStarts = cleanedLines.map((l) => l.x).sort((a, b) => a - b);
+    // Margem esquerda padrão do corpo do texto (percentil 20 para ignorar recuos de parágrafo)
+    const bodyLeftMargin = xStarts[Math.floor(xStarts.length * 0.2)] || xStarts[0] || 0;
+
+    const xEnds = cleanedLines.map((l) => l.endX).sort((a, b) => a - b);
+    // Margem direita padrão do corpo do texto (percentil 80)
+    const bodyRightMargin = xEnds[Math.floor(xEnds.length * 0.8)] || xEnds[xEnds.length - 1] || 0;
+
     const lineGaps: number[] = [];
     for (let i = 0; i < cleanedLines.length - 1; i++) {
       const gap = cleanedLines[i].y - cleanedLines[i + 1].y;
@@ -153,7 +218,7 @@ export async function extractPageReflow(
     lineGaps.sort((a, b) => a - b);
     const medianGap = lineGaps.length > 0 ? lineGaps[Math.floor(lineGaps.length / 2)] : medianFontSize * 1.3;
 
-    // 6. Build reflow blocks
+    // 5. Build reflow blocks with accurate paragraph, dialogue, and indentation detection
     const blocks: ReflowBlock[] = [];
     let currentParagraph = '';
 
@@ -171,12 +236,13 @@ export async function extractPageReflow(
       const line = cleanedLines[i];
       const prevLine = i > 0 ? cleanedLines[i - 1] : null;
 
-      // Heading detection:
-      // - Noticeably larger font (>= 1.25x median) OR
-      // - Regex matches common chapter/section patterns
+      // Heading detection
       const isLargeFont = line.maxFontSize >= medianFontSize * 1.22;
-      const isChapterHeading = /^(?:cap[ií]tulo|parte|livro|se[cç][aã]o|noite|encontro|pr[oó]logo|ep[ií]logo)\b/i.test(line.text);
-      const isHeading = (isLargeFont || isChapterHeading) && line.text.length < 80;
+      const isChapterHeading =
+        /^(?:cap[ií]tulo|parte|livro|se[cç][aã]o|pr[oó]logo|ep[ií]logo|pref[aá]cio|introdu[cç][aã]o)\b/i.test(
+          line.text
+        ) || /^(?:[IVXLCDM]+|\d{1,3})$/.test(line.text.trim());
+      const isHeading = (isLargeFont || isChapterHeading) && line.text.length < 90;
 
       if (isHeading) {
         flushParagraph();
@@ -188,12 +254,27 @@ export async function extractPageReflow(
         continue;
       }
 
-      // Check if we should break paragraph:
-      // Gap significantly larger than normal gap
+      // Paragraph break heuristics:
+      // 1) Vertical gap noticeably larger than normal line spacing
+      // 2) First-line indentation compared to body left margin
+      // 3) Previous line ended well before the right margin (and ended with terminal punctuation)
+      // 4) Dialogue line starting with travessão (— / – / - )
+      // 5) Table of contents / dotted line
       let shouldBreakParagraph = false;
       if (prevLine) {
         const gap = prevLine.y - line.y;
-        if (gap > medianGap * 1.6) {
+        const isVerticalGap = gap > medianGap * 1.32;
+        const isIndented =
+          bodyRightMargin - bodyLeftMargin > medianFontSize * 10 &&
+          line.x - bodyLeftMargin > medianFontSize * 0.85;
+        const prevEndedShort =
+          bodyRightMargin - bodyLeftMargin > medianFontSize * 10 &&
+          bodyRightMargin - prevLine.endX > medianFontSize * 2.4 &&
+          /[.!?…"”»:)—–]$/.test(prevLine.text);
+        const isDialogueStart = /^[—–―]\s*\S|^-\s+[A-ZÀ-Ýa-zà-ÿ"“]/.test(line.text);
+        const isDotLeader = /\.{4,}|\s+\d{1,4}$/.test(line.text) && line.text.includes('..');
+
+        if (isVerticalGap || isIndented || prevEndedShort || isDialogueStart || isDotLeader) {
           shouldBreakParagraph = true;
         }
       }
@@ -202,11 +283,15 @@ export async function extractPageReflow(
         flushParagraph();
       }
 
-      // Handle hyphenation at line end: "exem-" + "plo" -> "exemplo"
-      if (currentParagraph.endsWith('-') || currentParagraph.endsWith('—')) {
-        currentParagraph = currentParagraph.slice(0, -1) + line.text;
-      } else if (currentParagraph.length === 0) {
+      // Handle syllabic hyphenation at line end without destroying dialogue dashes (—) or enclitic pronouns (-se, -lo)
+      if (currentParagraph.length === 0) {
         currentParagraph = line.text;
+      } else if (
+        /[a-zà-ÿ]-$/.test(currentParagraph) &&
+        /^[a-zà-ÿ]/.test(line.text) &&
+        !/^(?:se|me|te|lhe|lhes|nos|vos|lo|la|los|las|no|na|nas)\b/i.test(line.text)
+      ) {
+        currentParagraph = currentParagraph.slice(0, -1) + line.text;
       } else {
         currentParagraph += ' ' + line.text;
       }

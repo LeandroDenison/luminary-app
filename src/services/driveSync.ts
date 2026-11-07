@@ -1,4 +1,13 @@
-import { DriveApi, DriveAuthError, ROOT_FOLDER_NAME, BOOKS_FOLDER_NAME, LIBRARY_FILE_NAME, type DriveFile } from './driveApi';
+import {
+  DriveApi,
+  DriveAuthError,
+  ROOT_FOLDER_NAME,
+  ROOT_FOLDER_NAME_ORGANIZED,
+  BOOKS_FOLDER_NAME,
+  LIBRARY_FILE_NAME,
+  extractDriveFolderId,
+  type DriveFile
+} from './driveApi';
 import { GoogleAuth } from './googleAuth';
 import { StorageService } from './storage';
 import { parsePdfFile } from './pdfHelper';
@@ -33,11 +42,13 @@ export interface SyncResult {
   updatedLocal: number;
   removedLocal: number;
   finishedAt: number;
+  readLibraryJson?: boolean;
 }
 
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'auth-required' | 'not-configured' | 'disconnected';
 
 const FOLDER_CACHE_KEY = 'luminary_drive_folder';
+const PREFERRED_FOLDER_KEY = 'luminary_preferred_folder_id';
 const LAST_SYNC_KEY = 'luminary_last_sync';
 
 const MIME_BY_FORMAT: Record<BookFormat, string> = {
@@ -204,6 +215,9 @@ export async function deduplicateAndMergeBooks(books: Book[]): Promise<boolean> 
       if (!winner.coverUrl && loser.coverUrl) {
         winner.coverUrl = loser.coverUrl;
       }
+      if (!winner.isReadLater && loser.isReadLater) {
+        winner.isReadLater = true;
+      }
       if ((!winner.fileSize || winner.fileSize === 0) && loser.fileSize && loser.fileSize > 0) {
         winner.fileSize = loser.fileSize;
       }
@@ -291,22 +305,99 @@ export const DriveSync = {
 
   clearCache() {
     localStorage.removeItem(FOLDER_CACHE_KEY);
+    localStorage.removeItem(PREFERRED_FOLDER_KEY);
     localStorage.removeItem(LAST_SYNC_KEY);
     setStatus('idle');
   },
 
   /**
-   * Finds the "Luminary Leitor - Organizado" or "Luminary Leitor" folder. Preference order:
-   *  1. "Luminary Leitor - Organizado" (highest priority)
-   *  2. Folder shared with me by someone else (girlfriend's account sees the owner's folder)
-   *  3. My own folder
-   *  4. Creates a new folder in my Drive
+   * Permite selecionar ou importar qualquer pasta diretamente do Google Drive (por ID ou link).
+   * Lê imediatamente o arquivo `biblioteca.json` se existir dentro da pasta, e varre os livros.
+   */
+  async selectFolder(folderIdOrUrl: string): Promise<SyncResult> {
+    const folderId = extractDriveFolderId(folderIdOrUrl);
+    if (!folderId) throw new Error('Informe um link ou ID de pasta válido do Google Drive.');
+
+    const folderFile = await DriveApi.getFile(folderId);
+    if (!folderFile || !folderFile.id) {
+      throw new Error('Pasta não encontrada ou sem permissão de acesso no Google Drive.');
+    }
+
+    localStorage.setItem(PREFERRED_FOLDER_KEY, folderFile.id);
+    localStorage.removeItem(FOLDER_CACHE_KEY);
+
+    return this.sync();
+  },
+
+  /**
+   * Finds the "Luminary Leitor - Organizado" or "Luminary Leitor" folder (or user-selected folder).
+   * Preference order:
+   *  1. User-selected preferred folder (if explicitly chosen via "Importar Pasta do Drive")
+   *  2. "Luminary Leitor - Organizado" (whether owned or sharedWithMe!)
+   *  3. Folder shared with me by someone else (Ellen's phone sees Leandro's shared folder)
+   *  4. My own folder
+   *  5. Creates a new folder in my Drive
    */
   async resolveFolder(): Promise<SyncFolderInfo> {
     const cached = this.getCachedFolder();
+    const preferredId = localStorage.getItem(PREFERRED_FOLDER_KEY);
+
+    // 1. Se o usuário escolheu manualmente uma pasta específica para importar/sincronizar
+    if (preferredId) {
+      if (cached && cached.rootId === preferredId) {
+        return cached;
+      }
+      try {
+        const customRoot = await DriveApi.getFile(preferredId);
+        const booksFolder = await DriveApi.ensureChildFolder(customRoot.id, BOOKS_FOLDER_NAME);
+        const info: SyncFolderInfo = {
+          rootId: customRoot.id,
+          rootName: customRoot.name,
+          booksId: booksFolder.id,
+          ownedByMe: customRoot.ownedByMe !== false,
+          ownerEmail: customRoot.owners?.[0]?.emailAddress
+        };
+        localStorage.setItem(FOLDER_CACHE_KEY, JSON.stringify(info));
+        return info;
+      } catch (err) {
+        if (err instanceof DriveAuthError) throw err;
+        localStorage.removeItem(PREFERRED_FOLDER_KEY);
+      }
+    }
 
     const folders = await DriveApi.findRootFolders();
-    const organizedFolder = folders.find((f) => f.name.includes('Organizado'));
+    const organizedFolder = folders.find((f) => f.name.toLowerCase().includes('organizado'));
+
+    // Auto-migra permissões da pasta antiga "Luminary Leitor" para a nova "Luminary Leitor - Organizado"
+    // Assim o celular da Ellen passa a enxergar a pasta nova automaticamente!
+    if (organizedFolder && organizedFolder.ownedByMe !== false) {
+      const migrationKey = `luminary_migrated_perms_${organizedFolder.id}`;
+      if (!localStorage.getItem(migrationKey)) {
+        const legacyFolders = folders.filter((f) => f.id !== organizedFolder.id && f.ownedByMe !== false);
+        if (legacyFolders.length > 0) {
+          try {
+            const currentPerms = await DriveApi.listPermissions(organizedFolder.id);
+            const currentEmails = new Set(
+              currentPerms.map((p) => p.emailAddress?.toLowerCase()).filter(Boolean)
+            );
+            for (const leg of legacyFolders) {
+              const legPerms = await DriveApi.listPermissions(leg.id).catch(() => []);
+              for (const p of legPerms) {
+                if (p.type === 'user' && p.role !== 'owner' && p.emailAddress) {
+                  const emailLower = p.emailAddress.toLowerCase();
+                  if (!currentEmails.has(emailLower)) {
+                    console.log(`[DriveSync] Migrando compartilhamento de ${p.emailAddress} para "${organizedFolder.name}"...`);
+                    await DriveApi.shareWithEmail(organizedFolder.id, p.emailAddress).catch(() => {});
+                    currentEmails.add(emailLower);
+                  }
+                }
+              }
+            }
+            localStorage.setItem(migrationKey, '1');
+          } catch {}
+        }
+      }
+    }
 
     // Se uma pasta organizada existir no Drive, SEMPRE migra para ela automaticamente,
     // mesmo se o dispositivo tiver a pasta antiga em cache!
@@ -315,7 +406,7 @@ export const DriveSync = {
       localStorage.removeItem(FOLDER_CACHE_KEY);
     } else if (cached) {
       try {
-        await DriveApi.findChild(cached.rootId, BOOKS_FOLDER_NAME);
+        await DriveApi.getFile(cached.rootId);
         return cached;
       } catch (err) {
         if (err instanceof DriveAuthError) throw err;
@@ -323,11 +414,12 @@ export const DriveSync = {
       }
     }
 
-    const shared = folders.find((f) => f.ownedByMe === false);
+    const sharedOrganized = folders.find((f) => f.ownedByMe === false && f.name.toLowerCase().includes('organizado'));
+    const sharedAny = folders.find((f) => f.ownedByMe === false);
     const own = folders.find((f) => f.ownedByMe !== false);
-    let root = organizedFolder || shared || own;
+    let root = sharedOrganized || organizedFolder || sharedAny || own;
     if (!root) {
-      root = await DriveApi.createFolder(ROOT_FOLDER_NAME);
+      root = await DriveApi.createFolder(ROOT_FOLDER_NAME_ORGANIZED);
       root.ownedByMe = true;
     }
 
@@ -365,18 +457,32 @@ export const DriveSync = {
 
   async _doSync(): Promise<SyncResult> {
     setStatus('syncing', 'Sincronizando com o Google Drive...');
-    const result: SyncResult = { uploaded: 0, imported: 0, updatedLocal: 0, removedLocal: 0, finishedAt: 0 };
+    const result: SyncResult = {
+      uploaded: 0,
+      imported: 0,
+      updatedLocal: 0,
+      removedLocal: 0,
+      finishedAt: 0,
+      readLibraryJson: false
+    };
 
     try {
       const folder = await this.resolveFolder();
 
-      // ---- 1. Load remote library (banco de dados leve na nuvem) ----
-      const libraryFile = await DriveApi.findChild(folder.rootId, LIBRARY_FILE_NAME);
+      // ---- 1. Load remote library (procura biblioteca.json na pasta raiz ou na subpasta de livros) ----
+      setStatus('syncing', `Lendo "${folder.rootName || ROOT_FOLDER_NAME}"...`);
+      let libraryFile = await DriveApi.findChild(folder.rootId, LIBRARY_FILE_NAME);
+      if (!libraryFile && folder.booksId && folder.booksId !== folder.rootId) {
+        libraryFile = await DriveApi.findChild(folder.booksId, LIBRARY_FILE_NAME);
+      }
+
       let remote: RemoteLibrary = { version: 1, updatedAt: 0, books: {}, deleted: {} };
       if (libraryFile) {
         try {
+          setStatus('syncing', 'Carregando biblioteca.json do Drive...');
           const parsed = JSON.parse(await DriveApi.downloadText(libraryFile.id));
           remote = { ...remote, ...parsed, books: parsed.books || {}, deleted: parsed.deleted || {} };
+          result.readLibraryJson = true;
         } catch (err) {
           console.warn('biblioteca.json inválido, recriando:', err);
         }
@@ -424,6 +530,9 @@ export const DriveSync = {
           if (!winner.coverUrl && (local.coverUrl || rem.coverUrl)) {
             winner.coverUrl = local.coverUrl || rem.coverUrl;
           }
+          if (winner.isReadLater === undefined && (local.isReadLater !== undefined || rem.isReadLater !== undefined)) {
+            winner.isReadLater = local.isReadLater ?? rem.isReadLater;
+          }
         } else {
           winner = { ...(local || rem)! };
         }
@@ -431,7 +540,11 @@ export const DriveSync = {
         // Apply remote changes locally (apenas metadados, zero downloads pesados)
         if (!local || JSON.stringify(local) !== JSON.stringify(winner)) {
           await StorageService.saveBook(winner, undefined, { preserveTimestamp: true });
-          result.updatedLocal++;
+          if (!local) {
+            result.imported++;
+          } else {
+            result.updatedLocal++;
+          }
         }
         merged[id] = winner;
       }
@@ -454,16 +567,20 @@ export const DriveSync = {
         if (book.driveFileId) continue;
         const file = await StorageService.getBookFile(book.id);
         if (!file) continue;
-        setStatus('syncing', `Enviando "${book.title}" para o Drive...`);
-        const uploaded = await DriveApi.uploadFile(
-          safeFileName(book.title, book.format),
-          MIME_BY_FORMAT[book.format],
-          file,
-          folder.booksId
-        );
-        book.driveFileId = uploaded.id;
-        await StorageService.saveBook(book, undefined, { preserveTimestamp: true });
-        result.uploaded++;
+        try {
+          setStatus('syncing', `Enviando "${book.title}" para o Drive...`);
+          const uploaded = await DriveApi.uploadFile(
+            safeFileName(book.title, book.format),
+            MIME_BY_FORMAT[book.format],
+            file,
+            folder.booksId
+          );
+          book.driveFileId = uploaded.id;
+          await StorageService.saveBook(book, undefined, { preserveTimestamp: true });
+          result.uploaded++;
+        } catch (upErr) {
+          console.warn(`Sem permissão ou erro ao enviar "${book.title}":`, upErr);
+        }
       }
 
       // ---- 5. Trash Drive files of deleted books (best effort) ----
@@ -484,7 +601,7 @@ export const DriveSync = {
       setStatus('syncing', 'Varrendo pastas e subpastas no Drive...');
       const candidates = await DriveApi.listDescendants([
         { id: folder.booksId, name: BOOKS_FOLDER_NAME, path: [BOOKS_FOLDER_NAME] },
-        { id: folder.rootId, name: ROOT_FOLDER_NAME, path: [] }
+        { id: folder.rootId, name: folder.rootName || ROOT_FOLDER_NAME, path: [] }
       ]);
 
       let newCatalogCount = 0;
@@ -558,14 +675,18 @@ export const DriveSync = {
         setStatus('syncing', `Catalogados ${newCatalogCount} novos livros na estante...`);
       }
 
-      // ---- 7. Save merged state locally and on the Drive (atualiza o banco biblioteca.json) ----
+      // ---- 7. Save merged state locally and on the Drive (best effort para contas convidadas) ----
       await StorageService.setDeletedBooks(deleted);
       const newRemote: RemoteLibrary = { version: 1, updatedAt: Date.now(), books: merged, deleted };
       const json = JSON.stringify(newRemote);
-      if (libraryFile) {
-        await DriveApi.updateFileContent(libraryFile.id, 'application/json', json);
-      } else {
-        await DriveApi.uploadFile(LIBRARY_FILE_NAME, 'application/json', json, folder.rootId);
+      try {
+        if (libraryFile) {
+          await DriveApi.updateFileContent(libraryFile.id, 'application/json', json);
+        } else {
+          await DriveApi.uploadFile(LIBRARY_FILE_NAME, 'application/json', json, folder.rootId);
+        }
+      } catch (writeErr) {
+        console.warn('[DriveSync] Aviso ao gravar biblioteca.json na pasta compartilhada (leitura local concluída):', writeErr);
       }
 
       result.finishedAt = Date.now();

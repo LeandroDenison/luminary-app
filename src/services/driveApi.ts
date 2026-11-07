@@ -71,11 +71,28 @@ function escapeQuery(value: string) {
 
 const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,ownedByMe,owners(emailAddress,displayName),parents,thumbnailLink,hasThumbnail';
 
+/**
+ * Extrai o ID de uma pasta do Google Drive a partir de uma URL completa ou ID puro.
+ */
+export function extractDriveFolderId(input: string): string {
+  const trimmed = input.trim();
+  const folderMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (folderMatch) return folderMatch[1];
+  const idParamMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (idParamMatch) return idParamMatch[1];
+  return trimmed;
+}
+
 export const DriveApi = {
   async getUser(): Promise<{ email: string; name: string }> {
     const res = await driveFetch(`${API}/about?fields=user(emailAddress,displayName)`);
     const data = await res.json();
     return { email: data.user?.emailAddress, name: data.user?.displayName };
+  },
+
+  async getFile(fileId: string): Promise<DriveFile> {
+    const res = await driveFetch(`${API}/files/${encodeURIComponent(fileId)}?fields=${FILE_FIELDS}&supportsAllDrives=true`);
+    return res.json();
   },
 
   async list(query: string): Promise<DriveFile[]> {
@@ -98,15 +115,64 @@ export const DriveApi = {
     return files;
   },
 
-  /** Lists folders named "Luminary Leitor - Organizado" or "Luminary Leitor" (prioritizing the organized folder) */
+  /**
+   * Lista pastas "Luminary Leitor - Organizado" ou "Luminary Leitor" tanto no próprio Drive
+   * quanto em "Compartilhados comigo" (sharedWithMe), priorizando sempre a pasta Organizado!
+   */
   async findRootFolders(): Promise<DriveFile[]> {
-    const folders = await this.list(
-      `(name = '${escapeQuery(ROOT_FOLDER_NAME_ORGANIZED)}' or name = '${escapeQuery(ROOT_FOLDER_NAME)}') and mimeType = '${FOLDER_MIME}' and trashed = false`
-    );
-    return folders.sort((a, b) => {
-      const aOrg = a.name.includes('Organizado') ? 1 : 0;
-      const bOrg = b.name.includes('Organizado') ? 1 : 0;
-      return bOrg - aOrg;
+    const [byName, sharedFolders] = await Promise.all([
+      this.list(
+        `(name contains 'Luminary' or name = '${escapeQuery(ROOT_FOLDER_NAME_ORGANIZED)}' or name = '${escapeQuery(ROOT_FOLDER_NAME)}') and mimeType = '${FOLDER_MIME}' and trashed = false`
+      ),
+      this.list(`sharedWithMe = true and mimeType = '${FOLDER_MIME}' and trashed = false`).catch(() => [] as DriveFile[])
+    ]);
+
+    const map = new Map<string, DriveFile>();
+    for (const f of [...byName, ...sharedFolders]) {
+      const lower = f.name.toLowerCase();
+      if (lower.includes('luminary') || lower.includes('organizado') || lower.includes('leitor')) {
+        map.set(f.id, f);
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      const aOrg = a.name.toLowerCase().includes('organizado') ? 1 : 0;
+      const bOrg = b.name.toLowerCase().includes('organizado') ? 1 : 0;
+      if (bOrg !== aOrg) return bOrg - aOrg;
+      // Prioriza pasta compartilhada quando ambas têm o mesmo nome
+      const aShared = a.ownedByMe === false ? 1 : 0;
+      const bShared = b.ownedByMe === false ? 1 : 0;
+      return bShared - aShared;
+    });
+  },
+
+  /**
+   * Lista pastas candidatas no Drive do usuário e em "Compartilhados comigo" para o seletor de pastas.
+   */
+  async listCandidateFolders(): Promise<DriveFile[]> {
+    const [luminaryFolders, sharedFolders, rootFolders] = await Promise.all([
+      this.list(
+        `(name contains 'Luminary' or name contains 'Livros' or name contains 'Biblioteca' or name contains 'Organizado') and mimeType = '${FOLDER_MIME}' and trashed = false`
+      ).catch(() => [] as DriveFile[]),
+      this.list(`sharedWithMe = true and mimeType = '${FOLDER_MIME}' and trashed = false`).catch(() => [] as DriveFile[]),
+      this.list(`'root' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`).catch(() => [] as DriveFile[])
+    ]);
+
+    const map = new Map<string, DriveFile>();
+    for (const f of [...luminaryFolders, ...sharedFolders, ...rootFolders]) {
+      map.set(f.id, f);
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      const score = (f: DriveFile) => {
+        const n = f.name.toLowerCase();
+        if (n.includes('organizado')) return 100;
+        if (n.includes('luminary')) return 80;
+        if (f.ownedByMe === false) return 60;
+        if (n.includes('livro') || n.includes('biblioteca')) return 40;
+        return 10;
+      };
+      return score(b) - score(a) || a.name.localeCompare(b.name, 'pt-BR');
     });
   },
 
@@ -114,7 +180,17 @@ export const DriveApi = {
     let q = `'${parentId}' in parents and name = '${escapeQuery(name)}' and trashed = false`;
     if (mimeType) q += ` and mimeType = '${mimeType}'`;
     const files = await this.list(q);
-    return files[0] || null;
+    if (files[0]) return files[0];
+
+    // Fallback case-insensitive (ex: "Livros" vs "livros")
+    const allChildren = await this.listChildren(parentId);
+    return (
+      allChildren.find(
+        (c) =>
+          c.name.toLowerCase() === name.toLowerCase() &&
+          (!mimeType || c.mimeType === mimeType)
+      ) || null
+    );
   },
 
   async listChildren(parentId: string): Promise<DriveFile[]> {
@@ -199,7 +275,13 @@ export const DriveApi = {
     const existing = children.find(
       (c) => c.mimeType === FOLDER_MIME && (c.name.toLowerCase() === name.toLowerCase() || /^(livros|books)$/i.test(c.name))
     );
-    return existing || this.createFolder(name, parentId);
+    if (existing) return existing;
+    try {
+      return await this.createFolder(name, parentId);
+    } catch {
+      // Se for uma pasta compartilhada sem permissão de criar subpasta, usa a própria pasta raiz como fallback
+      return { id: parentId, name, mimeType: FOLDER_MIME };
+    }
   },
 
   /** Uploads a new file (multipart upload) */
